@@ -109,6 +109,7 @@
       if (!state.messages) state.messages = [];
       if (!state.gallery) state.gallery = [];
       if (!state.meals) state.meals = defaultMeals();
+      if (!state.water) state.water = {};
       if (state.settings.lastClean === undefined) state.settings.lastClean = 0;
         if (!state.settings.room) state.settings.room = { backend: 'supabase', url: 'https://chfczfrkgndgudcxoump.supabase.co', anon: 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
         else {
@@ -522,6 +523,38 @@
   if (mealAddBtn) mealAddBtn.addEventListener('click', addMeal);
   const mealResetBtn = $('#mealReset');
   if (mealResetBtn) mealResetBtn.addEventListener('click', resetMeals);
+
+  // 💧 喝水记录（共享每日打卡，跟随房间同步）
+  const WATER_GOAL = 8;     // 每日目标杯数
+  const WATER_ML = 250;     // 每杯毫升
+  function todayWater() { return state.water[todayKey()] || 0; }
+  function addWater(delta) {
+    const k = todayKey();
+    const next = Math.max(0, (state.water[k] || 0) + delta);
+    state.water[k] = next;
+    state.waterUpdated = Date.now();
+    save(); renderWater(); scheduleRoomPush();
+    if (delta > 0 && next === WATER_GOAL) toast('今天喝水达标啦 💧🎉');
+  }
+  function renderWater() {
+    const c = todayWater();
+    const el = (id) => $(id);
+    if (el('#waterCount')) el('#waterCount').textContent = c;
+    if (el('#waterMl')) el('#waterMl').textContent = (c * WATER_ML) + ' ml';
+    const fill = el('#waterFill');
+    if (fill) fill.style.width = Math.min(100, Math.round(c / WATER_GOAL * 100)) + '%';
+    const cups = el('#waterCups');
+    if (cups) {
+      let h = '';
+      for (let i = 0; i < WATER_GOAL; i++) {
+        h += '<span class="cup' + (i < c ? ' on' : '') + '">' + (i < c ? '💧' : '○') + '</span>';
+      }
+      cups.innerHTML = h;
+    }
+  }
+  const wm = $('#waterMinus'), wp = $('#waterPlus');
+  if (wm) wm.addEventListener('click', () => addWater(-1));
+  if (wp) wp.addEventListener('click', () => addWater(1));
   const mealInputEl = $('#mealInput');
   if (mealInputEl) mealInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addMeal(); });
 
@@ -636,6 +669,9 @@
       return td >= weekStart && td < weekEnd && !t.deleted;
     }).length;
     $('#statWeek').textContent = weekCount;
+
+    // 喝水记录
+    renderWater();
 
     // 河豚气泡
     const hour = d.getHours();
@@ -1456,6 +1492,7 @@
       messages: state.messages,
       gallery: state.gallery,
       meals: state.meals,
+      water: state.water,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
       syncedAt: Date.now()
@@ -1503,6 +1540,13 @@
       gallery: mergeArr(local.gallery, remote.gallery),
       meals: mergeArr(local.meals, remote.meals),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
+      water: (() => {
+        const out = Object.assign({}, local.water || {});
+        Object.keys(remote.water || {}).forEach(k => {
+          out[k] = Math.max(out[k] || 0, remote.water[k] || 0);
+        });
+        return out;
+      })(),
     });
     if (remote.partners) local.settings.partners = mergePlan(local.settings.partners, remote.partners);
   }
