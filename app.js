@@ -119,6 +119,9 @@
           else if (!rm.backend) rm.backend = (rm.url && rm.url.includes('workers.dev')) ? 'worker' : 'supabase';
           if (rm.anon === undefined) rm.anon = 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq';
         }
+        // 清理历史重复的默认菜单（按菜名去重，软删除多余的）
+        const removed = dedupeMeals();
+        if (removed > 0) save();
       }
     } catch (e) {
       console.warn('Load failed', e);
@@ -407,7 +410,21 @@
   function defaultMeals() {
     const names = ['火锅', '麻辣烫', '烧烤', '日料', '汉堡', '披萨', '盖浇饭', '面条', '沙拉', '饺子', '黄焖鸡', '螺蛳粉'];
     const now = Date.now();
-    return names.map(n => ({ id: uid(), name: n, createdAt: now, updatedAt: now, deleted: false }));
+    // 用稳定 id（基于菜名），否则每次部署/清缓存都会生成新 id，
+    // 与云端已同步的默认项 id 不同，mergeArr 不去重 → 默认菜单层层叠加
+    return names.map(n => ({ id: 'm-def-' + n, name: n, createdAt: now, updatedAt: now, deleted: false }));
+  }
+  // 按菜名去重：同名只保留第一条未删除的，其余软删除。返回被清理的条数
+  function dedupeMeals(arr) {
+    const list = arr || state.meals;
+    const seen = new Map();
+    let removed = 0;
+    (list || []).forEach(m => {
+      if (m.deleted) return;
+      if (seen.has(m.name)) { m.deleted = true; m.updatedAt = Date.now(); removed++; }
+      else seen.set(m.name, m);
+    });
+    return removed;
   }
   function liveMeals() { return live(state.meals); }
 
@@ -489,6 +506,7 @@
     const inp = $('#mealInput');
     const name = inp.value.trim();
     if (!name) { toast('先输入菜名', 'error'); return; }
+    if (liveMeals().some(m => m.name === name)) { toast('菜单里已经有「' + name + '」啦', 'error'); inp.value = ''; return; }
     state.meals.push({ id: uid(), name: name, createdAt: Date.now(), updatedAt: Date.now(), deleted: false });
     save(); inp.value = ''; mealRotation = 0; renderMeal(); scheduleRoomPush(); toast('已添加 ✨');
   }
@@ -1543,7 +1561,7 @@
       trainings: mergeArr(local.trainings, remote.trainings),
       messages: mergeArr(local.messages, remote.messages),
       gallery: mergeArr(local.gallery, remote.gallery),
-      meals: mergeArr(local.meals, remote.meals),
+      meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
       water: (() => {
         const out = Object.assign({}, local.water || {});
