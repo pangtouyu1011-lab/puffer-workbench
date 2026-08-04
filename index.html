@@ -325,11 +325,24 @@
             <div class="stat-value" id="statTrain">--</div>
             <div class="stat-sub" id="statTrainSub">查看计划</div>
           </div>
+        </div>
+
+        <div class="stat-row">
           <div class="stat-card pixel-border stat-brown">
             <span class="stat-icon">🔥</span>
             <div class="stat-label">本周训练</div>
             <div class="stat-value" id="statWeek">0</div>
             <div class="stat-sub">天已完成</div>
+          </div>
+          <div class="stat-card pixel-border water-mini" id="waterCard" title="点击 +/− 打卡喝水量">
+            <span class="stat-icon">💧</span>
+            <div class="stat-label">喝水打卡</div>
+            <div class="stat-value" id="waterCount">0<span class="water-unit">/8杯</span></div>
+            <div class="water-mini-bar"><div class="water-fill" id="waterFill"></div></div>
+            <div class="water-mini-actions">
+              <button class="pixel-btn tiny" id="waterMinus" aria-label="减少一杯">−</button>
+              <button class="pixel-btn primary tiny" id="waterPlus" aria-label="增加一杯">+</button>
+            </div>
           </div>
         </div>
 
@@ -366,21 +379,6 @@
             </div>
             <div class="today-train" id="dashTrain">
               <p class="muted">加载中...</p>
-            </div>
-          </div>
-          <div class="card pixel-border water-card" id="waterCard">
-            <div class="card-head">
-              <h3>💧 喝水记录</h3>
-              <span class="muted" id="waterMl">0 ml</span>
-            </div>
-            <div class="water-body">
-              <div class="water-count"><span id="waterCount">0</span><span class="water-unit">/ 8 杯</span></div>
-              <div class="water-bar"><div class="water-fill" id="waterFill"></div></div>
-              <div class="water-cups" id="waterCups"></div>
-              <div class="water-actions">
-                <button class="pixel-btn" id="waterMinus">− 一杯</button>
-                <button class="pixel-btn primary" id="waterPlus">+ 一杯</button>
-              </div>
             </div>
           </div>
         </div>

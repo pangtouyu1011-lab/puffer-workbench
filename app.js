@@ -538,12 +538,17 @@
   }
   function renderWater() {
     const c = todayWater();
-    const el = (id) => $(id);
-    if (el('#waterCount')) el('#waterCount').textContent = c;
-    if (el('#waterMl')) el('#waterMl').textContent = (c * WATER_ML) + ' ml';
-    const fill = el('#waterFill');
+    const $ = (id) => document.querySelector(id);
+    const cnt = $('#waterCount');
+    if (cnt) {
+      // 只更新首个文本节点（保留后面的 <span class="water-unit">/8杯</span>）
+      if (cnt.firstChild && cnt.firstChild.nodeType === 3) cnt.firstChild.nodeValue = c;
+      else cnt.textContent = c; // 兜底
+    }
+    if ($('#waterMl')) $('#waterMl').textContent = (c * WATER_ML) + ' ml';
+    const fill = $('#waterFill');
     if (fill) fill.style.width = Math.min(100, Math.round(c / WATER_GOAL * 100)) + '%';
-    const cups = el('#waterCups');
+    const cups = $('#waterCups');
     if (cups) {
       let h = '';
       for (let i = 0; i < WATER_GOAL; i++) {

@@ -348,9 +348,62 @@ body {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-bottom: 16px;
+}
+.water-mini {
+  background: linear-gradient(135deg, #B8E3F0 0%, #7CC0E8 100%);
+  color: #1c4a6b;
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+}
+.water-mini .stat-value {
+  font-size: 22px;
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.water-mini .water-unit {
+  font-family: var(--font-cn);
+  font-size: 12px;
+  opacity: 0.85;
+}
+.water-mini-bar {
+  height: 8px;
+  background: rgba(255,255,255,0.5);
+  border: 2px solid #1c4a6b;
+  margin-top: 8px;
+  border-radius: 0;
+  overflow: hidden;
+}
+.water-mini .water-fill {
+  height: 100%;
+  background: #1c4a6b;
+  width: 0%;
+  transition: width 0.4s ease;
+}
+.water-mini-actions {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+.pixel-btn.tiny {
+  padding: 4px 12px;
+  font-size: 14px;
+  line-height: 1.2;
 }
 .stat-card {
   padding: 14px;
