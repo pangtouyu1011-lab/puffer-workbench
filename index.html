@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#FF8C42" />
+  <title>河豚工作台 · PufferWork</title>
+  <link rel="icon" type="image/png" href="assets/puffer.png" />
+  <link rel="apple-touch-icon" href="assets/puffer-180.png" />
+  <link rel="manifest" href="site.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="河豚工作台" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ===== 仪表板排版优化 ===== */
+    .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
+
+    /* 天气 / 纪念日 */
+    .weather-card .weather-body { text-align:center; padding:14px 0 8px; }
+    .weather-main { display:flex; align-items:center; justify-content:center; gap:12px; }
+    .weather-icon { font-size:46px; line-height:1; }
+    .weather-temp { font-family:var(--font-pixel); font-size:30px; color:var(--puffer-orange,#FF8C42); }
+    .weather-desc { font-size:14px; margin-top:6px; color:var(--text-soft); }
+    .weather-city { font-size:12px; color:var(--border,#4A2C17); opacity:.7; margin-top:2px; }
+    .anni-card { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .anni-body { text-align:center; padding:12px 6px; }
+    .anni-days { font-family:var(--font-pixel); font-size:42px; color:#e8658a; line-height:1.1; }
+    .anni-unit { font-size:15px; margin-left:4px; color:var(--border,#4A2C17); }
+    .anni-label { font-size:13px; color:var(--border,#4A2C17); margin-top:4px; }
+    .anni-next { font-size:12px; margin-top:10px; padding:7px 10px; background:var(--puffer-cream,#FFF4E0); border:2px solid var(--border,#4A2C17); }
+
+    /* 📸 照片 Hero（首页置顶） */
+    .gallery-hero { padding:0; overflow:hidden; }
+    .gallery-stage { position:relative; height:330px; background:var(--puffer-cream,#FFF4E0); overflow:hidden; }
+    .gallery-slider { position:absolute; inset:0; }
+    .gallery-slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity .5s ease; }
+    .gallery-slide.on { opacity:1; }
+    .gallery-cap {
+      position:absolute; z-index:2; left:0; right:0; bottom:0;
+      background:linear-gradient(transparent, rgba(74,44,23,.85));
+      color:#fff; text-align:center; font-size:14px; padding:26px 14px 12px;
+    }
+    .gallery-empty {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      color:var(--border,#4A2C17); opacity:.6; font-size:15px; text-align:center; padding:24px;
+    }
+    .gallery-nav {
+      position:absolute; top:50%; transform:translateY(-50%); z-index:3;
+      width:40px; height:40px; border:3px solid var(--border,#4A2C17); background:rgba(255,244,224,.92);
+      color:var(--border,#4A2C17); font-size:26px; line-height:1; cursor:pointer;
+      box-shadow:3px 3px 0 var(--border,#4A2C17); display:flex; align-items:center; justify-content:center;
+      font-family:var(--font-pixel);
+    }
+    .gallery-nav.prev { left:12px; }
+    .gallery-nav.next { right:12px; }
+    .gallery-nav:active { transform:translateY(-50%) translate(3px,3px); box-shadow:none; }
+    .gallery-dots { position:absolute; z-index:3; bottom:12px; left:0; right:0; display:flex; gap:7px; justify-content:center; }
+    .gallery-dots span { width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,.45); border:1px solid var(--border,#4A2C17); cursor:pointer; }
+    .gallery-dots span.on { background:var(--puffer-orange,#FF8C42); }
+    .gallery-hero-bar {
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:12px 14px; background:#fff; border-top:3px solid var(--border,#4A2C17);
+    }
+    .gallery-hero-title { font-family:var(--font-cn); font-size:15px; color:var(--border,#4A2C17); }
+    .msg-list { display:flex; flex-direction:column; gap:10px; max-height:440px; overflow-y:auto; margin-bottom:12px; }
+    .msg-item { position:relative; background:var(--puffer-cream,#FFF4E0); border:2px solid var(--border,#4A2C17); padding:8px 10px; max-width:80%; align-self:flex-start; }
+    .msg-item.mine { align-self:flex-end; background:#ffe2c2; }
+    .msg-meta { display:flex; gap:8px; font-size:11px; color:var(--border,#4A2C17); opacity:.7; margin-bottom:4px; }
+    .msg-author { font-family:var(--font-pixel); }
+    .msg-text { font-size:14px; white-space:pre-wrap; word-break:break-word; }
+    .msg-del { position:absolute; top:4px; right:4px; border:none; background:transparent; cursor:pointer; color:var(--border,#4A2C17); opacity:.5; font-size:12px; }
+    .msg-del:hover { opacity:1; }
+    .msg-compose { display:flex; gap:8px; border-top:2px dashed var(--border,#4A2C17); padding-top:12px; }
+    .msg-compose textarea { flex:1; resize:vertical; min-height:44px; }
+    .gal-manage-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; margin-top:12px; max-height:320px; overflow-y:auto; }
+    .gal-manage-item { border:2px solid var(--border,#4A2C17); padding:6px; background:var(--puffer-cream,#FFF4E0); }
+    .gal-manage-item img { width:100%; height:100px; object-fit:cover; border:2px solid var(--border,#4A2C17); display:block; }
+    .gm-meta { display:flex; flex-direction:column; gap:6px; margin-top:6px; font-size:12px; }
+    @media (max-width:640px){ .dash-top { grid-template-columns:1fr; } }
+
+    /* 🎡 吃饭转盘 */
+    .meal-card { display:flex; flex-direction:column; align-items:center; gap:14px; padding:18px; }
+    .meal-wheel-wrap { position:relative; width:300px; height:300px; max-width:84vw; }
+    .meal-wheel-wrap canvas { width:100%; height:100%; display:block; border:4px solid var(--border,#4A2C17); border-radius:50%; box-shadow:4px 4px 0 var(--border,#4A2C17); background:#fff; }
+    .meal-pointer {
+      position:absolute; top:-4px; left:50%; transform:translateX(-50%); z-index:3;
+      width:0; height:0; border-left:14px solid transparent; border-right:14px solid transparent;
+      border-top:28px solid var(--puffer-orange,#FF8C42);
+      filter:drop-shadow(2px 2px 0 var(--border,#4A2C17));
+    }
+    .meal-result { font-family:var(--font-cn); font-size:18px; color:var(--border,#4A2C17); text-align:center; min-height:26px; }
+    .meal-result b { color:var(--puffer-orange,#FF8C42); }
+    .meal-spin { font-size:16px; padding:12px 28px; }
+    .meal-add { display:flex; gap:8px; margin-bottom:12px; }
+    .meal-add .pixel-input { flex:1; min-width:0; }
+    .meal-list { list-style:none; display:flex; flex-direction:column; gap:8px; }
+    .meal-list li { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; background:var(--puffer-cream,#FFF4E0); border:2px solid var(--border,#4A2C17); }
+    .meal-name { font-size:14px; }
+    .meal-del { border:none; background:transparent; cursor:pointer; color:var(--border,#4A2C17); font-size:14px; opacity:.6; }
+    .meal-del:hover { opacity:1; color:#e8658a; }
+    .meal-empty { text-align:center; color:var(--border,#4A2C17); opacity:.6; padding:8px; }
+
+    /* 📅 共同日历 */
+    .cal-card { padding:14px; }
+    .cal-title { font-family:var(--font-pixel); font-size:16px; color:var(--border,#4A2C17); text-align:center; margin-bottom:10px; }
+    .cal-weekdays { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:4px; }
+    .cal-weekdays span { text-align:center; font-size:12px; opacity:.6; padding:4px 0; }
+    .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+    .cal-cell {
+      position:relative; min-height:64px; padding:5px 6px; background:#fff;
+      border:2px solid var(--border,#4A2C17); display:flex; flex-direction:column; gap:4px;
+      cursor:pointer; transition:transform .08s;
+    }
+    .cal-cell:hover { transform:translateY(-2px); background:var(--puffer-cream,#FFF4E0); }
+    .cal-cell.empty { background:transparent; border-color:transparent; cursor:default; }
+    .cal-cell.empty:hover { transform:none; background:transparent; }
+    .cal-cell.today { box-shadow:0 0 0 2px var(--puffer-orange,#FF8C42) inset; }
+    .cal-cell.sel { background:var(--puffer-cream,#FFF4E0); }
+    .cal-cell.anni { background:#ffe9f0; }
+    .cal-top { display:flex; align-items:center; justify-content:space-between; }
+    .cal-day { font-family:var(--font-pixel); font-size:11px; color:var(--border,#4A2C17); }
+    .cal-heart { font-size:12px; }
+    .cal-tags { display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin-top:auto; }
+    .cal-dot { width:8px; height:8px; border-radius:50%; background:#c9b48f; border:1px solid var(--border,#4A2C17); }
+    .cal-dot.high { background:#e8658a; }
+    .cal-dot.mid { background:#f3b24a; }
+    .cal-dot.low { background:#7fb98a; }
+    .cal-dot.done { background:#cfcfcf; }
+    .cal-more { font-size:10px; color:var(--border,#4A2C17); opacity:.7; }
+    .cal-anni-tag { font-size:10px; color:#e8658a; border:1px solid #e8658a; border-radius:3px; padding:0 3px; }
+    .cal-anni-banner { background:#ffe9f0; border:2px solid #e8658a; padding:10px; margin-bottom:12px; text-align:center; font-size:14px; color:#c34a73; }
+    .ti-date { font-size:11px; color:var(--border,#4A2C17); opacity:.7; background:var(--puffer-cream,#FFF4E0); border:1px solid var(--border,#4A2C17); border-radius:3px; padding:1px 4px; }
+    .ti-actions .cal { background:transparent; border:1px solid #e8658a; color:#e8658a; }
+    .pixel-btn.cal-export { background:#e8658a; border-color:#4A2C17; color:#fff; }
+    .pixel-btn.cal-export:hover { background:#d4507a; }
+    @media (max-width:640px){
+      .cal-cell { min-height:52px; padding:3px 4px; }
+      .cal-day { font-size:10px; }
+      .cal-dot { width:6px; height:6px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 背景：像素浮起的泡泡 -->
+  <div class="bg-bubbles" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="app">
+    <!-- 顶部导航 -->
+    <header class="app-header pixel-border">
+      <div class="header-left">
+        <div class="logo">
+          <img src="assets/puffer.png" alt="puffer" class="puffer-logo" />
+        </div>
+        <div class="brand">
+          <h1 class="brand-title">PufferWork</h1>
+          <p class="brand-sub" id="brandSub">河豚个人工作台</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="sync-pill" id="syncPill" title="点击查看同步状态">
+          <span class="sync-dot" id="syncDot"></span>
+          <span class="sync-text" id="syncText">本地</span>
+        </div>
+        <button class="icon-btn pixel-btn" id="settingsBtn" aria-label="设置">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94a7.5 7.5 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.5 7.5 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.65 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.5 7.5 0 0 0 0 1.88L2.77 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.05.7 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.24 1.13-.56 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 移动端底部 Tab / 桌面端侧边栏 -->
+    <aside class="sidebar pixel-border">
+      <nav class="nav">
+        <button class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-label">仪表板</span>
+        </button>
+        <button class="nav-item" data-page="todo">
+          <span class="nav-icon">✅</span>
+          <span class="nav-label">待办</span>
+        </button>
+        <button class="nav-item" data-page="fitness">
+          <span class="nav-icon">💪</span>
+          <span class="nav-label">健身</span>
+        </button>
+        <button class="nav-item" data-page="calendar">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">日历</span>
+        </button>
+        <button class="nav-item" data-page="messages">
+          <span class="nav-icon">💬</span>
+          <span class="nav-label">留言板</span>
+        </button>
+        <button class="nav-item" data-page="meal">
+          <span class="nav-icon">🎡</span>
+          <span class="nav-label">吃什么</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="mascot-mini" aria-hidden="true">
+          <img src="assets/puffer.png" alt="puffer" />
+        </div>
+        <p class="mascot-quote" id="mascotQuote">冲冲冲！</p>
+      </div>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="content">
+      <!-- 仪表板 -->
+      <section class="page active" id="page-dashboard">
+        <!-- 📸 精选照片 Hero：置于首页最顶部 -->
+        <div class="card pixel-border gallery-hero" id="galleryHero">
+          <div class="gallery-stage">
+            <div class="gallery-slider" id="gallerySlider"><div class="gallery-empty">还没有照片，点「管理」添加你们的回忆 💕</div></div>
+            <button class="gallery-nav prev" id="galleryPrev" aria-label="上一张" hidden>‹</button>
+            <button class="gallery-nav next" id="galleryNext" aria-label="下一张" hidden>›</button>
+            <div class="gallery-dots" id="galleryDots"></div>
+          </div>
+          <div class="gallery-hero-bar">
+            <span class="gallery-hero-title">📸 孙大炮 &amp; 童大侠 的精选回忆</span>
+            <button class="link-btn" id="galleryManageBtn">管理 →</button>
+          </div>
+        </div>
+
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">今日概览</h2>
+            <p class="page-sub" id="todayDateText">--</p>
+          </div>
+          <div class="mascot-hero">
+            <img src="assets/puffer.png" alt="mascot" class="mascot-img" />
+            <div class="mascot-bubble" id="mascotBubble">今天也要元气满满哦～</div>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card pixel-border stat-orange">
+            <div class="stat-label">今日待办</div>
+            <div class="stat-value" id="statTodo">0</div>
+            <div class="stat-sub" id="statTodoSub">待完成</div>
+          </div>
+          <div class="stat-card pixel-border stat-cream">
+            <div class="stat-label">今日训练</div>
+            <div class="stat-value" id="statTrain">--</div>
+            <div class="stat-sub" id="statTrainSub">查看计划</div>
+          </div>
+          <div class="stat-card pixel-border stat-brown">
+            <div class="stat-label">本周训练</div>
+            <div class="stat-value" id="statWeek">0</div>
+            <div class="stat-sub">天已完成</div>
+          </div>
+        </div>
+
+        <div class="dash-top">
+          <div class="card pixel-border weather-card" id="weatherCard">
+            <div class="card-head">
+              <h3>🌤️ 今日天气</h3>
+              <span class="muted" id="weatherCity">杭州</span>
+            </div>
+            <div class="weather-body" id="weatherBody">加载中...</div>
+          </div>
+          <div class="card pixel-border anni-card" id="anniversaryCard">
+            <div class="card-head"><h3>💞 纪念日</h3></div>
+            <div class="anni-body" id="anniBody">加载中...</div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card pixel-border">
+            <div class="card-head">
+              <h3>🔥 今日待办</h3>
+              <button class="link-btn" data-goto="todo">查看全部 →</button>
+            </div>
+            <ul class="mini-list" id="dashTodoList">
+              <li class="empty">还没有待办，去添加一个吧～</li>
+            </ul>
+          </div>
+          <div class="card pixel-border">
+            <div class="card-head">
+              <h3>🏋️ 今日训练</h3>
+              <button class="link-btn" data-goto="fitness">去记录 →</button>
+            </div>
+            <div class="today-train" id="dashTrain">
+              <p class="muted">加载中...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 待办 -->
+      <section class="page" id="page-todo">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">待办事项</h2>
+            <p class="page-sub">把要做的事清空，把脑袋清空</p>
+          </div>
+          <div class="page-actions">
+            <div class="seg">
+              <button class="seg-btn active" data-filter="all">全部</button>
+              <button class="seg-btn" data-filter="active">未完成</button>
+              <button class="seg-btn" data-filter="done">已完成</button>
+            </div>
+            <button class="pixel-btn primary" id="addTodoBtn">+ 新建</button>
+            <button class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办到 iOS 日历">📅 导出日历</button>
+          </div>
+        </div>
+        <div class="card pixel-border">
+          <ul class="todo-list" id="todoList"></ul>
+        </div>
+      </section>
+
+      <!-- 共同日历 -->
+      <section class="page" id="page-calendar">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">📅 共同日历</h2>
+            <p class="page-sub">待办与纪念日，一目了然</p>
+          </div>
+          <div class="page-actions">
+            <button class="pixel-btn ghost" id="calPrev">‹ 上月</button>
+            <button class="pixel-btn" id="calToday">今天</button>
+            <button class="pixel-btn ghost" id="calNext">下月 ›</button>
+          </div>
+        </div>
+        <div class="card pixel-border cal-card">
+          <div class="cal-title" id="calTitle">--</div>
+          <div class="cal-weekdays">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+      </section>
+
+      <!-- 健身 -->
+      <section class="page" id="page-fitness">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">健身计划</h2>
+            <p class="page-sub" id="fitnessToday">--</p>
+          </div>
+          <div class="page-actions">
+            <button class="pixel-btn ghost" id="openPlanBtn">📅 周期计划</button>
+            <button class="pixel-btn primary" id="addTrainBtn">+ 记录训练</button>
+          </div>
+        </div>
+
+        <div class="card pixel-border">
+          <div class="week-strip" id="weekStrip"></div>
+        </div>
+
+        <div class="card pixel-border today-plan">
+          <div class="card-head">
+            <h3 id="todayPlanTitle">今日计划</h3>
+            <span class="badge" id="todayPlanBadge">--</span>
+          </div>
+          <div id="todayPlanBody" class="today-plan-body">
+            <p class="muted">加载中...</p>
+          </div>
+        </div>
+
+        <div class="card pixel-border">
+          <div class="card-head">
+            <h3>训练记录</h3>
+            <span class="muted" id="trainCount">0 条</span>
+          </div>
+          <ul class="train-list" id="trainList"></ul>
+        </div>
+      </section>
+
+
+      <!-- 留言板 -->
+      <section class="page" id="page-messages">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">💬 留言板</h2>
+            <p class="page-sub">两个人的悄悄话 · 实时同步</p>
+          </div>
+          <div class="page-actions">
+            <div class="seg" id="msgIdentitySeg">
+              <button class="seg-btn active" data-me="a">以孙大炮</button>
+              <button class="seg-btn" data-me="b">以童大侠</button>
+            </div>
+          </div>
+        </div>
+        <div class="card pixel-border">
+          <div class="msg-list" id="msgList"></div>
+          <div class="msg-compose">
+            <textarea class="pixel-textarea" id="msgInput" placeholder="写点什么给 TA..."></textarea>
+            <button class="pixel-btn primary" id="msgSend">发送 💌</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 吃饭转盘 -->
+      <section class="page" id="page-meal">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title">🎡 今天吃什么</h2>
+            <p class="page-sub">不知道吃啥？转一下，让命运决定</p>
+          </div>
+        </div>
+        <div class="card pixel-border meal-card">
+          <div class="meal-wheel-wrap">
+            <div class="meal-pointer"></div>
+            <canvas id="mealWheel" width="300" height="300"></canvas>
+          </div>
+          <div class="meal-result" id="mealResult">点击「开始转盘」决定今天吃啥～</div>
+          <button class="pixel-btn primary meal-spin" id="mealSpin">🎯 开始转盘</button>
+        </div>
+        <div class="card pixel-border">
+          <div class="card-head">
+            <h3>🍽️ 菜单清单</h3>
+            <button class="link-btn" id="mealReset">恢复默认</button>
+          </div>
+          <div class="meal-add">
+            <input class="pixel-input" id="mealInput" placeholder="加一个选项，如：螺蛳粉" />
+            <button class="pixel-btn primary" id="mealAdd">+ 添加</button>
+          </div>
+          <ul class="meal-list" id="mealList"></ul>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 移动端底部 Tab -->
+  <nav class="bottom-nav">
+    <button class="bn-item active" data-page="dashboard">
+      <span>🏠</span><small>首页</small>
+    </button>
+    <button class="bn-item" data-page="todo">
+      <span>✅</span><small>待办</small>
+    </button>
+    <button class="bn-item" data-page="fitness">
+      <span>💪</span><small>健身</small>
+    </button>
+    <button class="bn-item" data-page="calendar">
+      <span>📅</span><small>日历</small>
+    </button>
+    <button class="bn-item" data-page="messages">
+      <span>💬</span><small>留言</small>
+    </button>
+    <button class="bn-item" data-page="meal">
+      <span>🎡</span><small>吃什么</small>
+    </button>
+  </nav>
+
+  <!-- 模态框：通用 -->
+  <div class="modal-mask" id="modalMask">
+    <div class="modal pixel-border" id="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">标题</h3>
+        <button class="modal-close" id="modalClose">×</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- 引入依赖：QRCode 用于同步 -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

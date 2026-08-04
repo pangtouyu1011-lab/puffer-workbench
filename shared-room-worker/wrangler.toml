@@ -1,0 +1,8 @@
+name = "puffer-share"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# 共享房间存储：Cloudflare KV
+[[kv_namespaces]]
+binding = "BENCH"
+id = "REPLACE_WITH_YOUR_KV_ID"   # 用 `wrangler kv namespace create BENCH` 得到
