@@ -567,6 +567,8 @@
     if (sub) sub.textContent = `${p.a} & ${p.b} 的河豚工作台`;
     const gt = $('#galleryHeroTitle');
     if (gt) gt.textContent = `📸 ${p.a} & ${p.b} 的精选回忆`;
+    const dt = $('#dwTitle');
+    if (dt) dt.textContent = `${p.a} & ${p.b}`;
   }
   function renderDashboard() {
     updateOwnerUI();
@@ -646,6 +648,10 @@
     else greet = '夜深了，别太晚睡哦';
     const p = state.settings.partners || { a: '孙大炮', b: '童大侠' };
     $('#mascotBubble').textContent = `${p.a}、${p.b}，${greet}`;
+    const greetEmoji = hour < 6 ? '🌙' : hour < 12 ? '🌞' : hour < 14 ? '🍱' : hour < 18 ? '☕' : hour < 22 ? '🌇' : '🌜';
+    const tname = hour < 6 ? '夜深了' : hour < 12 ? '早安' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : hour < 22 ? '晚上好' : '夜深了';
+    const dwg = $('#dwGreeting');
+    if (dwg) dwg.textContent = `${tname} ${greetEmoji}`;
     $('#mascotQuote').textContent = mascotQuotes[Math.floor(Math.random() * mascotQuotes.length)];
     renderWeather();
     renderAnniversary();

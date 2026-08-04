@@ -80,7 +80,63 @@
     .gal-manage-item { border:2px solid var(--border,#4A2C17); padding:6px; background:var(--puffer-cream,#FFF4E0); }
     .gal-manage-item img { width:100%; height:100px; object-fit:cover; border:2px solid var(--border,#4A2C17); display:block; }
     .gm-meta { display:flex; flex-direction:column; gap:6px; margin-top:6px; font-size:12px; }
-    @media (max-width:640px){ .dash-top { grid-template-columns:1fr; } }
+    /* ===== 仪表板美化（第二轮 2026-08-04） ===== */
+    .dash-welcome {
+      display:flex; align-items:center; justify-content:space-between; gap:16px;
+      padding:18px 20px; margin:4px 0 18px;
+      background:
+        radial-gradient(circle at 88% 6%, rgba(255,140,66,.22), transparent 42%),
+        linear-gradient(135deg, var(--puffer-cream), #fff8ec);
+      overflow:hidden;
+    }
+    .dw-left { display:flex; flex-direction:column; gap:7px; min-width:0; }
+    .dw-greeting { font-family:var(--font-pixel); font-size:11px; color:var(--puffer-orange-deep); letter-spacing:1px; }
+    .dw-title { font-family:var(--font-cn); font-size:28px; color:var(--border); line-height:1.1; }
+    .dw-date { font-size:14px; color:var(--text-soft); }
+    .dw-mascot { position:relative; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+    .dw-mascot .mascot-bubble {
+      position:relative; background:#fff; border:3px solid var(--border); padding:8px 12px;
+      max-width:210px; font-family:var(--font-cn); font-size:13px; color:var(--text);
+      box-shadow:3px 3px 0 var(--border);
+    }
+    .dw-mascot .mascot-bubble::after {
+      content:''; position:absolute; right:-13px; top:50%; transform:translateY(-50%);
+      border:7px solid transparent; border-left-color:var(--border);
+    }
+    .dw-mascot .mascot-bubble::before {
+      content:''; position:absolute; right:-9px; top:50%; transform:translateY(-50%);
+      border:5px solid transparent; border-left-color:#fff; z-index:1;
+    }
+    .dw-mascot .mascot-img { width:62px; height:62px; image-rendering:pixelated; }
+
+    .section-label {
+      display:flex; align-items:center; gap:8px;
+      font-family:var(--font-pixel); font-size:11px; color:var(--border);
+      margin:18px 0 12px; letter-spacing:1px;
+    }
+    .section-label::before {
+      content:''; width:6px; height:18px; background:var(--puffer-orange);
+      border:2px solid var(--border); box-shadow:2px 2px 0 var(--border);
+    }
+    .section-label .sl-icon { font-size:14px; }
+
+    .stat-card { transition:transform .12s ease, box-shadow .12s ease; }
+    .stat-card:hover { transform:translateY(-4px); box-shadow:7px 7px 0 var(--border); }
+    .stat-card::after { left:-8px; right:auto; top:auto; bottom:-8px; width:26px; height:26px; opacity:.5; }
+    .stat-icon { position:absolute; right:12px; top:12px; font-size:22px; line-height:1; }
+
+    .weather-card .card-head h3, .anni-card .card-head h3 { color:var(--puffer-orange-deep); }
+    .anni-card { background:linear-gradient(160deg, #ffe3ee, #fff4f8); }
+    .anni-card .card-head h3 { color:var(--puffer-pink-deep); }
+    .anni-card .anni-days { color:#e8658a; }
+    .anni-card .anni-next { border-color:var(--puffer-pink-deep); }
+
+    @media (max-width:640px){
+      .dash-top { grid-template-columns:1fr; }
+      .dash-welcome { flex-direction:column; align-items:flex-start; gap:14px; }
+      .dw-mascot { align-self:flex-end; }
+      .dw-title { font-size:23px; }
+    }
 
     /* 🎡 吃饭转盘 */
     .meal-card { display:flex; flex-direction:column; align-items:center; gap:14px; padding:18px; }
@@ -227,35 +283,41 @@
           </div>
         </div>
 
-        <div class="page-head">
-          <div>
-            <h2 class="page-title">今日概览</h2>
-            <p class="page-sub" id="todayDateText">--</p>
+        <!-- 欢迎横幅 -->
+        <div class="dash-welcome pixel-border">
+          <div class="dw-left">
+            <div class="dw-greeting" id="dwGreeting">嗨，你好 👋</div>
+            <h2 class="dw-title" id="dwTitle">孙大炮 &amp; 童大侠</h2>
+            <p class="dw-date" id="todayDateText">--</p>
           </div>
-          <div class="mascot-hero">
-            <img src="assets/puffer.png" alt="mascot" class="mascot-img" />
+          <div class="dw-mascot">
             <div class="mascot-bubble" id="mascotBubble">今天也要元气满满哦～</div>
+            <img src="assets/puffer.png" alt="mascot" class="mascot-img" />
           </div>
         </div>
 
         <div class="stat-grid">
           <div class="stat-card pixel-border stat-orange">
+            <span class="stat-icon">✅</span>
             <div class="stat-label">今日待办</div>
             <div class="stat-value" id="statTodo">0</div>
             <div class="stat-sub" id="statTodoSub">待完成</div>
           </div>
           <div class="stat-card pixel-border stat-cream">
+            <span class="stat-icon">💪</span>
             <div class="stat-label">今日训练</div>
             <div class="stat-value" id="statTrain">--</div>
             <div class="stat-sub" id="statTrainSub">查看计划</div>
           </div>
           <div class="stat-card pixel-border stat-brown">
+            <span class="stat-icon">🔥</span>
             <div class="stat-label">本周训练</div>
             <div class="stat-value" id="statWeek">0</div>
             <div class="stat-sub">天已完成</div>
           </div>
         </div>
 
+        <div class="section-label"><span class="sl-icon">🌿</span>生活点滴</div>
         <div class="dash-top">
           <div class="card pixel-border weather-card" id="weatherCard">
             <div class="card-head">
@@ -270,6 +332,7 @@
           </div>
         </div>
 
+        <div class="section-label"><span class="sl-icon">📌</span>今日安排</div>
         <div class="dash-grid">
           <div class="card pixel-border">
             <div class="card-head">
