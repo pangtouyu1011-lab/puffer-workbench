@@ -6,6 +6,11 @@
 孙大炮 & 童大侠 的二人共享网页工作台。纯前端 SPA，**无构建步骤、无框架、无打包器**。
 线上部署在 CloudStudio：https://5a4c4cb6bede4b17bd780a2867f68f1f.bj10.agentos-app.net
 
+## 代码仓库（GitHub，私有）
+- 仓库地址：https://github.com/pangtouyu1011-lab/puffer-workbench （私有）
+- 默认分支：`main`；本地已 `git init`，每次改动请 `git commit` 后再部署
+- ⚠️ Codex 改完代码**不会自动上线**：线上跑的是 CloudStudio 副本，需回到 WorkBuddy 重新部署，或将本仓库关联 CloudStudio 实现推送即部署
+
 ## 技术栈
 - 单页应用：HTML + 自写 CSS + 原生 JavaScript（vanilla，全局变量，无模块系统）
 - 视觉风格：像素风，主色 #FF8C42（橙）/ #FFF4E0（米）/ #4A2C17（棕）
