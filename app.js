@@ -371,6 +371,9 @@
       list.scrollTop = list.scrollHeight;
     }
     $$('#msgIdentitySeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.me === me));
+    // 进入留言页即视为已读，清零未读角标
+    if (state.settings.unreadMsgCount) { state.settings.unreadMsgCount = 0; save(); }
+    updateMsgBadge();
   }
   function sendMessage() {
     const ta = $('#msgInput');
@@ -383,6 +386,27 @@
   // 留言板 / 照片管理 事件绑定（脚本加载时只绑一次）
   const msgSendBtn = $('#msgSend');
   if (msgSendBtn) msgSendBtn.addEventListener('click', sendMessage);
+  // 系统通知开关
+  const msgNotifyBtn = $('#msgNotifyToggle');
+  if (msgNotifyBtn) msgNotifyBtn.addEventListener('click', () => {
+    const on = state.settings.notifySystem === false; // 当前为关 → 切换为开
+    state.settings.notifySystem = on;
+    save();
+    if (on) {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(p => {
+          toast(p === 'granted' ? '系统通知已开启 🔔' : '已开启红点提醒（系统通知未授权）', p === 'granted' ? 'success' : 'info');
+        }).catch(() => { toast('系统通知已开启 🔔'); });
+      } else if ('Notification' in window && Notification.permission === 'granted') {
+        toast('系统通知已开启 🔔');
+      } else {
+        toast('已开启红点提醒（当前浏览器不支持系统通知）', 'info');
+      }
+    } else {
+      toast('系统通知已关闭');
+    }
+    updateMsgNotifyBtn();
+  });
   const galBtn = $('#galleryManageBtn');
   if (galBtn) galBtn.addEventListener('click', openGalleryManager);
   document.addEventListener('click', (e) => {
@@ -591,6 +615,60 @@
     el.className = 'toast show ' + type;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.className = 'toast'; }, 2200);
+  }
+
+  // ==========================================
+  // 3b. 留言通知 A+B 方案
+  //   A = toast 提示 + 导航红点未读角标
+  //   B = 浏览器系统通知（Notification API，可开关）
+  // ==========================================
+  function isMessagesActive() {
+    const a = document.querySelector('.nav-item.active');
+    return !!(a && a.dataset.page === 'messages');
+  }
+
+  // 在留言导航项（桌面侧边栏 + 移动底部栏）上渲染未读红点
+  function updateMsgBadge() {
+    const count = state.settings.unreadMsgCount || 0;
+    $$('.nav-item[data-page="messages"], .bn-item[data-page="messages"]').forEach(el => {
+      let b = el.querySelector('.msg-badge');
+      if (!b) {
+        b = document.createElement('span');
+        b.className = 'msg-badge';
+        el.appendChild(b);
+      }
+      if (count > 0) { b.textContent = count > 99 ? '99+' : String(count); b.hidden = false; }
+      else { b.hidden = true; }
+    });
+  }
+
+  // 收到对方新留言时：A 红点+toast；B 系统通知
+  function notifyNewMessage(m) {
+    const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
+    const who = (m.author === 'a' ? partners.a : partners.b) || 'TA';
+    const text = m.text || '';
+    // A：红点角标累加 + toast
+    state.settings.unreadMsgCount = (state.settings.unreadMsgCount || 0) + 1;
+    updateMsgBadge();
+    toast('💬 ' + who + '：' + (text.length > 16 ? text.slice(0, 16) + '…' : text), 'info');
+    // B：浏览器系统通知
+    try {
+      if (state.settings.notifySystem !== false && 'Notification' in window) {
+        if (Notification.permission === 'granted') {
+          const n = new Notification('💬 新留言 · ' + who, { body: text, tag: 'puffer-msg' });
+          n.onclick = () => { try { window.focus(); } catch (e) {} goPage('messages'); n.close(); };
+        } else if (Notification.permission === 'default') {
+          // 首次弹窗请求授权（用户允许后后续消息才会真正弹出系统通知）
+          Notification.requestPermission().catch(() => {});
+        }
+      }
+    } catch (e) { /* 系统通知不可用则忽略，仅保留 A 方案 */ }
+  }
+
+  // 反映系统通知开关按钮状态
+  function updateMsgNotifyBtn() {
+    const b = $('#msgNotifyToggle');
+    if (b) b.classList.toggle('active', state.settings.notifySystem !== false);
   }
 
   // ==========================================
@@ -1708,10 +1786,19 @@
     try {
       const remote = await roomGet(r.url, r.id, r.pass);
       if (remote.rev === r.lastRev) return; // 无变化
+      const prevIds = new Set(state.messages.map(m => m.id));
+      const me = state.settings.me || 'a';
+      const messagesActive = isMessagesActive();
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
       r.lastSync = Date.now();
       save();
+      // 检测来自对方的新留言：仅当未停留在留言页时通知，避免打扰
+      if (!messagesActive) {
+        live(state.messages).forEach(m => {
+          if (!prevIds.has(m.id) && m.author !== me) notifyNewMessage(m);
+        });
+      }
       renderCurrent();
       toast('已收到对方的更新 ✨');
     } catch (e) { /* 轮询静默失败 */ }
@@ -1808,6 +1895,8 @@
   if (!state.settings.partners) state.settings.partners = { a: (state.settings.ownerName || '孙大炮'), b: '童大侠', updatedAt: 0 };
   if (!state.settings.me) state.settings.me = 'a';
   if (!state.settings.city) state.settings.city = '杭州';
+  if (state.settings.notifySystem === undefined) state.settings.notifySystem = true;
+  if (state.settings.unreadMsgCount === undefined) state.settings.unreadMsgCount = 0;
   runWeeklyCleanup(); // 打开页面时检查是否已满一周，自动清理旧待办/留言
   updateSyncPill();
   handleHashSync();
@@ -1816,5 +1905,7 @@
     pushToRoom();
     startRoomPolling();
   }
+  updateMsgBadge();
+  updateMsgNotifyBtn();
   goPage('dashboard');
 })();
