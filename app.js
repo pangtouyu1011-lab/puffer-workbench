@@ -400,7 +400,15 @@
     const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
     const items = live(state.wishes).slice().sort((a, b) => b.createdAt - a.createdAt);
     if (items.length === 0) {
-      wall.innerHTML = '<div class="wish-empty">🌙 心愿墙还是空的<br><span>点「✨ 写心愿」，偷偷贴一张上去</span></div>';
+      wall.innerHTML =
+        '<div class="wish-empty">' +
+          '<div class="we-glow"><span class="we-icon">🕯️</span></div>' +
+          '<div class="we-title">心愿墙还是空的</div>' +
+          '<div class="we-sub">偷偷写下你的小心愿<br>等 TA 来点亮 ✨</div>' +
+          '<button class="pixel-btn primary" id="wishEmptyBtn">✍️ 写第一个心愿</button>' +
+        '</div>';
+      const wb = $('#wishEmptyBtn');
+      if (wb) wb.addEventListener('click', openWishModal);
       return;
     }
     wall.innerHTML = items.map(w => {
@@ -977,9 +985,27 @@
   let calSelected = null;          // 'YYYY-MM-DD'
   const dateKey = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
+  // 待办日期友好格式化：今年内 → "M月D日"，跨年 → "YYYY年M月D日"
+  function fmtMDate(s) {
+    if (!s) return '';
+    const p = s.split('-');
+    const y = +p[0], m = +p[1], d = +p[2];
+    if (y !== new Date().getFullYear()) return y + '年' + m + '月' + d + '日';
+    return m + '月' + d + '日';
+  }
+  // 待办排序：有日期的按日期近→远（未到期在前，过期的最前）；无日期的排最后，按创建时间新→旧
+  function sortTodos(arr) {
+    return arr.slice().sort((a, b) => {
+      const ad = a.date ? new Date(a.date + 'T00:00:00').getTime() : Infinity;
+      const bd = b.date ? new Date(b.date + 'T00:00:00').getTime() : Infinity;
+      if (ad !== bd) return ad - bd;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+  }
+
   function renderTodo() {
     const list = $('#todoList');
-    let items = live(state.todos).slice().sort((a, b) => b.createdAt - a.createdAt);
+    let items = sortTodos(live(state.todos));
     if (todoFilter === 'active') items = items.filter(t => !t.done);
     if (todoFilter === 'done') items = items.filter(t => t.done);
 
@@ -990,10 +1016,12 @@
     list.innerHTML = items.map(t => `
       <li class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
         <span class="todo-check ${t.done ? 'done' : ''}" data-act="toggle"></span>
-        <div class="ti-text">${escapeHtml(t.text)}</div>
-        <div class="ti-meta">
-          ${t.date ? `<span class="ti-date">📅${escapeHtml(t.date.slice(5))}</span>` : ''}
-          ${t.priority && t.priority !== 'none' ? `<span class="ti-prio ${t.priority}">${t.priority === 'high' ? '高' : t.priority === 'mid' ? '中' : '低'}</span>` : ''}
+        <div class="ti-main">
+          <div class="ti-text">${escapeHtml(t.text)}</div>
+          <div class="ti-meta">
+            ${t.date ? `<span class="ti-date">📅 ${fmtMDate(t.date)}</span>` : ''}
+            ${t.priority && t.priority !== 'none' ? `<span class="ti-prio ${t.priority}">${t.priority === 'high' ? '高优先级' : t.priority === 'mid' ? '中优先级' : '低优先级'}</span>` : ''}
+          </div>
         </div>
         <div class="ti-actions">
           <button data-act="edit" title="编辑">✎</button>
@@ -1144,12 +1172,14 @@
     const dateLabel = `${y}年${m}月${d}日`;
     const isAnni = (m === 12 && d === 4);
     calSelected = key;
-    const items = live(state.todos).filter(t => t.date === key).sort((a, b) => b.createdAt - a.createdAt);
+    const items = sortTodos(live(state.todos).filter(t => t.date === key));
     const listHtml = items.length ? items.map(t =>
       `<li class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
         <span class="todo-check ${t.done ? 'done' : ''}" data-act="toggle"></span>
-        <div class="ti-text">${escapeHtml(t.text)}</div>
-        <div class="ti-meta">${t.priority && t.priority !== 'none' ? `<span class="ti-prio ${t.priority}">${t.priority === 'high' ? '高' : t.priority === 'mid' ? '中' : '低'}</span>` : ''}</div>
+        <div class="ti-main">
+          <div class="ti-text">${escapeHtml(t.text)}</div>
+          <div class="ti-meta">${t.priority && t.priority !== 'none' ? `<span class="ti-prio ${t.priority}">${t.priority === 'high' ? '高优先级' : t.priority === 'mid' ? '中优先级' : '低优先级'}</span>` : ''}</div>
+        </div>
         <div class="ti-actions"><button data-act="edit" title="编辑">✎</button><button data-act="del" class="del" title="删除">🗑</button></div>
       </li>`
     ).join('') : '<li class="todo-empty">这一天还没有待办，加一个吧 ✨</li>';
