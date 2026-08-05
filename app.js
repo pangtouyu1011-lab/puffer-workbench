@@ -402,7 +402,7 @@
     if (items.length === 0) {
       wall.innerHTML =
         '<div class="wish-empty">' +
-          '<div class="we-glow"><span class="we-icon">🕯️</span></div>' +
+          '<div class="we-glow"><span class="we-icon">🛎️</span></div>' +
           '<div class="we-title">心愿墙还是空的</div>' +
           '<div class="we-sub">偷偷写下你的小心愿<br>等 TA 来点亮 ✨</div>' +
           '<button class="pixel-btn primary" id="wishEmptyBtn">✍️ 写第一个心愿</button>' +
@@ -413,7 +413,7 @@
     }
     wall.innerHTML = items.map(w => {
       const who = w.anonymous ? '匿名' : (w.author === 'a' ? partners.a : partners.b);
-      const whoIcon = w.anonymous ? '🕯️' : '👤';
+      const whoIcon = w.anonymous ? '🤫' : '👤';
       const mine = w.author === me;
       return '<div class="wish-note note-' + (w.color || 'peach') + '"' + (w.tilt ? ' style="--tilt:' + w.tilt + 'deg"' : '') + '>' +
         '<div class="wish-pin"></div>' +
@@ -433,7 +433,7 @@
       '<button class="wish-icon-opt' + (idx === 0 ? ' sel' : '') + '" data-icon="' + i + '" title="' + (WISH_ICON_TIP[i] || '') + '">' + i + '</button>'
     ).join('');
     openModal({
-      title: '🕯️ 写下一个心愿',
+      title: '🛎️ 写下一个心愿',
       body: '<div class="form-row">' +
         '<label>心愿内容</label>' +
         '<textarea class="pixel-textarea" id="wishText" placeholder="比如：想去海边看一次日出 🌅" maxlength="120"></textarea>' +
