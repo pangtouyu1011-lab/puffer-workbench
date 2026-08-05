@@ -74,8 +74,93 @@
   const mascotQuotes = [
     '冲冲冲！', '今天也要元气满满！', '累了就休息一下 ☕',
     '你比你想象的更强！', '记得喝水哦～', '把待办清空，脑袋也清空～',
-    '坚持就是胜利！', '专注当下，一步一步来'
+    '坚持就是胜利！', '专注当下，一步一步来',
+    '我们一起慢慢变好 🐡', '今天也要开开心心！', '你笑起来最好看 😊',
+    '别担心，我在呢～', '小小目标，慢慢达成 🌟', '摸摸头，充电完成 🔋'
   ];
+
+  // 胖头鱼交互：戳一下会鼓起来 + 说句鼓励的话
+  let mascotGreeting = '';
+  let mascotRevertTimer = null;
+  let mascotPuffTimer = null;
+  function mascotPoke(img) {
+    if (!img) return;
+    img.classList.remove('puff');
+    void img.offsetWidth; // 强制重排以重放动画
+    img.classList.add('puff');
+    clearTimeout(mascotPuffTimer);
+    mascotPuffTimer = setTimeout(() => img.classList.remove('puff'), 600);
+    const q = mascotQuotes[Math.floor(Math.random() * mascotQuotes.length)];
+    const bubble = document.getElementById('mascotBubble');
+    if (bubble) {
+      bubble.textContent = q;
+      bubble.classList.remove('pop');
+      void bubble.offsetWidth;
+      bubble.classList.add('pop');
+    }
+    const quote = document.getElementById('mascotQuote');
+    if (quote) quote.textContent = q;
+    clearTimeout(mascotRevertTimer);
+    mascotRevertTimer = setTimeout(() => {
+      if (bubble && mascotGreeting) bubble.textContent = mascotGreeting;
+      // 侧栏河豚恢复当前页的应景文案
+      const activePage = document.querySelector('.nav-item.active');
+      if (activePage) pageMascotQuote(activePage.dataset.page);
+    }, 3600);
+  }
+  function bindMascot() {
+    const dash = document.querySelector('.dw-mascot .mascot-img');
+    if (dash) {
+      dash.tabIndex = 0;
+      dash.setAttribute('role', 'button');
+      dash.title = '戳一戳我 🐡';
+      dash.addEventListener('click', () => mascotPoke(dash));
+      dash.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); mascotPoke(dash); } });
+    }
+    const mini = document.querySelector('.mascot-mini img');
+    if (mini) {
+      mini.tabIndex = 0;
+      mini.setAttribute('role', 'button');
+      mini.title = '戳一戳我 🐡';
+      mini.addEventListener('click', () => mascotPoke(mini));
+    }
+  }
+  bindMascot();
+
+  // 背景视差：桌面端鼠标移动时，光斑层与漂浮物层按不同深度平移，制造景深感
+  function bindBgParallax() {
+    // 用「精确指针 + 零触点」判断桌面，避开 headless 无 hover 设备/触屏笔记本
+    const isDesktop = window.matchMedia('(pointer: fine)').matches && navigator.maxTouchPoints === 0;
+    if (!isDesktop) return;
+    const layers = Array.from(document.querySelectorAll('.bg-bubbles, .bg-motes'));
+    if (!layers.length) return;
+    const st = layers.map((el, i) => ({ el, curX: 0, curY: 0, tx: 0, ty: 0, f: i === 0 ? 18 : 34 }));
+    let raf = null;
+    const apply = () => {
+      for (const s of st) {
+        s.curX += (s.tx - s.curX) * 0.07;
+        s.curY += (s.ty - s.curY) * 0.07;
+        s.el.style.transform = `translate3d(${s.curX.toFixed(2)}px, ${s.curY.toFixed(2)}px, 0)`;
+      }
+    };
+    const onMove = (e) => {
+      const nx = e.clientX / window.innerWidth - 0.5;
+      const ny = e.clientY / window.innerHeight - 0.5;
+      for (const s of st) { s.tx = nx * -s.f; s.ty = ny * -s.f * 0.8; }
+      apply(); // 立即反馈一帧
+      if (!raf) raf = requestAnimationFrame(function loop() {
+        apply();
+        // 接近目标则停
+        if (st.some(s => Math.abs(s.tx - s.curX) > 0.05 || Math.abs(s.ty - s.curY) > 0.05)) {
+          raf = requestAnimationFrame(loop);
+        } else {
+          raf = null;
+        }
+      });
+    };
+    window.addEventListener('mousemove', onMove, { passive: true });
+  }
+  bindBgParallax();
 
   const state = {
     todos: [],
@@ -85,6 +170,7 @@
     gallery: [],
     meals: defaultMeals(),
     wishes: [],
+    water: {},
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
       me: 'a',
@@ -104,7 +190,17 @@
         Object.assign(state, data);
         // 兼容旧版本
         if (!state.settings) state.settings = { partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 }, me: 'a', city: '杭州', syncCode: '', cloudUrl: '' };
-        if (!state.fitnessPlan) state.fitnessPlan = { ...defaultPlan };
+        // fitnessPlan 必须为 7 项（0=周日…6=周六），每项含 name/muscle/desc；
+        // 兼容空对象 / 旧对象形式 {0..6} / 残缺数组，缺项一律用默认补齐
+        {
+          const base = [];
+          for (let i = 0; i < 7; i++) base[i] = defaultPlan[i] ? { ...defaultPlan[i] } : { name: '休息', muscle: 'rest', desc: '' };
+          const src = state.fitnessPlan;
+          if (src && typeof src === 'object') {
+            for (let i = 0; i < 7; i++) { const u = src[i]; if (u && typeof u === 'object' && !Array.isArray(u)) base[i] = { ...base[i], ...u }; }
+          }
+          state.fitnessPlan = base;
+        }
         if (!state.trainings) state.trainings = [];
         if (!state.todos) state.todos = [];
       if (!state.messages) state.messages = [];
@@ -130,10 +226,15 @@
     }
   }
 
-  function save() {
+  function save(opts) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      if (state.settings.room && state.settings.room.joined) scheduleRoomPush();
+      // 用户操作触发推送；但推送/轮询内部保存时用 silent 跳过，
+      // 否则「推送成功→save→再推送」会形成每 1 秒一次的无限循环，
+      // 双人在线时互相抢写，rev 疯涨，版本冲突变成必然。
+      if (!opts || !opts.silent) {
+        if (state.settings.room && state.settings.room.joined) scheduleRoomPush();
+      }
     } catch (e) {
       toast('保存失败：' + e.message, 'error');
     }
@@ -145,6 +246,21 @@
   // ==========================================
   // 2. 路由 / 导航
   // ==========================================
+  // 每个页面的陪伴文案（侧栏河豚；dashboard 用随机语录，不走这里）
+  const PAGE_QUOTES = {
+    todo: '一起把待办清空吧 💪',
+    fitness: '练完记得拉伸，好好休息 🌿',
+    calendar: '看看这个月有什么小安排 📅',
+    messages: 'TA 的心里话都藏在这里 💌',
+    wishes: '心愿不怕多，慢慢都会实现 🛎️',
+    meal: '今天想好吃什么了吗？🍜',
+  };
+  function pageMascotQuote(name) {
+    const q = PAGE_QUOTES[name];
+    const el = document.getElementById('mascotQuote');
+    if (q && el) el.textContent = q;
+  }
+
   function goPage(name) {
     $$('.page').forEach(p => p.classList.remove('active'));
     const target = $(`#page-${name}`);
@@ -152,6 +268,15 @@
 
     $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
     $$('.bn-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
+
+    // 进入留言页：清零未读红点与标题角标
+    if (name === 'messages' && state.settings.unreadMsgCount) {
+      state.settings.unreadMsgCount = 0;
+      save({ silent: true });
+    }
+    updateMsgBadge();
+    updateTitleBadge();
+    pageMascotQuote(name); // 侧栏河豚说一句应景的话
 
     // 滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -197,7 +322,7 @@
       const j = await res.json();
       const cur = j.current || {};
       state._weather = { ts: Date.now(), city: city, temp: Math.round(cur.temperature_2m), code: cur.weather_code, time: cur.time };
-      save();
+      save({ silent: true }); // 天气是本地缓存，不值得推送给对方（否则会形成推送循环）
       renderWeather();
     } catch (e) {
       const el = $('#weatherBody');
@@ -254,12 +379,20 @@
     const items = live(state.gallery);
     if (galleryTimer) { clearInterval(galleryTimer); galleryTimer = null; }
     if (items.length === 0) {
-      el.innerHTML = '<div class="gallery-empty">还没有照片，点「管理」添加你们的回忆 💕</div>';
+      const hero = $('#galleryHero');
+      if (hero) hero.classList.add('is-empty'); // 空状态压缩 Hero 高度
+      el.innerHTML =
+        '<div class="gallery-empty">还没有共同回忆<br><span class="ge-sub">添加第一张照片，给今天留个记号</span>' +
+        '<button class="pixel-btn primary gallery-cta" id="galleryEmptyCta">＋ 添加第一张照片</button></div>';
+      const cta = $('#galleryEmptyCta');
+      if (cta) cta.addEventListener('click', openGalleryManager);
       if (dotsWrap) dotsWrap.innerHTML = '';
       if (prev) prev.hidden = true;
       if (next) next.hidden = true;
       return;
     }
+    const hero = $('#galleryHero');
+    if (hero) hero.classList.remove('is-empty');
     el.innerHTML = items.map((g, k) =>
       '<div class="gallery-slide' + (k === 0 ? ' on' : '') + '" style="background-image:url(\'' + escapeHtml(g.dataUrl || g.url || '') + '\')"></div>'
     ).join('') + '<div class="gallery-cap"></div>';
@@ -362,15 +495,30 @@
     if (items.length === 0) {
       list.innerHTML = '<div class="msg-empty">还没有留言，给 TA 写第一句吧 💌</div>';
     } else {
-      list.innerHTML = items.map(m => {
+      // 按天分组：今天 / 昨天 / M月D日
+      const dayLabel = (ts) => {
+        const d = new Date(ts), t = new Date();
+        const k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+        const tk = t.getFullYear() + '-' + t.getMonth() + '-' + t.getDate();
+        const y = new Date(t.getTime() - 86400000);
+        const yk = y.getFullYear() + '-' + y.getMonth() + '-' + y.getDate();
+        if (k === tk) return '今天';
+        if (k === yk) return '昨天';
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      };
+      let lastDay = '', html = '';
+      items.forEach(m => {
+        const label = dayLabel(m.createdAt);
+        if (label !== lastDay) { html += '<div class="msg-day">' + label + '</div>'; lastDay = label; }
         const who = m.author === 'a' ? partners.a : partners.b;
         const mine = m.author === me;
-        return '<div class="msg-item ' + (mine ? 'mine' : '') + '">' +
+        html += '<div class="msg-item ' + (mine ? 'mine' : '') + '">' +
           '<div class="msg-meta"><span class="msg-author">' + escapeHtml(who) + '</span><span class="msg-time">' + fmtTime(m.createdAt) + '</span></div>' +
           '<div class="msg-text">' + escapeHtml(m.text) + '</div>' +
           (mine ? '<button class="msg-del" data-id="' + m.id + '" title="删除">✕</button>' : '') +
         '</div>';
-      }).join('');
+      });
+      list.innerHTML = html;
       list.scrollTop = list.scrollHeight;
     }
     $$('#msgIdentitySeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.me === me));
@@ -415,12 +563,17 @@
       const who = w.anonymous ? '匿名' : (w.author === 'a' ? partners.a : partners.b);
       const whoIcon = w.anonymous ? '🤫' : '👤';
       const mine = w.author === me;
+      // 点亮反馈：被 TA 点亮后显示；自己写的心愿不显示点亮按钮
+      const litCtrl = w.lit
+        ? '<span class="wish-lit">已被 TA 看到 💗</span>'
+        : (mine ? '' : '<button class="wish-lit-btn" data-act="lit-wish" data-id="' + w.id + '" title="点亮 TA 的心愿">点亮 🛎️</button>');
       return '<div class="wish-note note-' + (w.color || 'peach') + '"' + (w.tilt ? ' style="--tilt:' + w.tilt + 'deg"' : '') + '>' +
         '<div class="wish-pin"></div>' +
         '<div class="wish-icon">' + (w.icon || '✨') + '</div>' +
         '<div class="wish-text">' + escapeHtml(w.text) + '</div>' +
         '<div class="wish-foot">' +
           '<span class="wish-who">' + whoIcon + ' ' + escapeHtml(who) + '</span>' +
+          litCtrl +
           '<span class="wish-date">' + monthDay(w.createdAt) + '</span>' +
           (mine ? '<button class="wish-del" data-act="del-wish" data-id="' + w.id + '" title="撕掉这张心愿">✕</button>' : '') +
         '</div>' +
@@ -483,7 +636,7 @@
     save(); closeModal(); renderWishes(); scheduleRoomPush(); toast('心愿已贴上 ✨');
   }
 
-  // 心愿墙按钮与删除事件（只绑一次）
+  // 心愿墙按钮与删除/点亮事件（只绑一次）
   const addWishBtn = $('#addWishBtn');
   if (addWishBtn) addWishBtn.addEventListener('click', openWishModal);
   document.addEventListener('click', (e) => {
@@ -492,6 +645,12 @@
       const w = state.wishes.find(x => x.id === wd.dataset.id);
       if (w) { w.deleted = true; w.updatedAt = Date.now(); }
       save(); renderWishes(); scheduleRoomPush(); toast('已撕掉这张心愿');
+    }
+    const lit = e.target.closest('[data-act="lit-wish"]');
+    if (lit) {
+      const w = state.wishes.find(x => x.id === lit.dataset.id);
+      if (w && !w.lit) { w.lit = true; w.litAt = Date.now(); w.updatedAt = Date.now(); }
+      save(); renderWishes(); scheduleRoomPush(); toast('已点亮 TA 的心愿 💗');
     }
   });
 
@@ -508,11 +667,14 @@
       if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission().then(p => {
           toast(p === 'granted' ? '系统通知已开启 🔔' : '已开启红点提醒（系统通知未授权）', p === 'granted' ? 'success' : 'info');
+          updateTitleBadge();
         }).catch(() => { toast('系统通知已开启 🔔'); });
       } else if ('Notification' in window && Notification.permission === 'granted') {
         toast('系统通知已开启 🔔');
+      } else if ('Notification' in window && Notification.permission === 'denied') {
+        toast('系统通知被浏览器拒绝：点地址栏左侧图标 → 网站设置 → 通知 → 允许', 'info');
       } else {
-        toast('已开启红点提醒（当前浏览器不支持系统通知）', 'info');
+        toast('已开启红点提醒（当前浏览器不支持系统通知，手机可留意标题角标）', 'info');
       }
     } else {
       toast('系统通知已关闭');
@@ -754,7 +916,7 @@
     });
   }
 
-  // 收到对方新留言时：A 红点+toast；B 系统通知
+  // 收到对方新留言时：A 红点+toast；B 系统通知；C 标题角标（不依赖权限，后台也能看到）
   function notifyNewMessage(m) {
     const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
     const who = (m.author === 'a' ? partners.a : partners.b) || 'TA';
@@ -762,6 +924,7 @@
     // A：红点角标累加 + toast
     state.settings.unreadMsgCount = (state.settings.unreadMsgCount || 0) + 1;
     updateMsgBadge();
+    updateTitleBadge();
     toast('💬 ' + who + '：' + (text.length > 16 ? text.slice(0, 16) + '…' : text), 'info');
     // B：浏览器系统通知
     try {
@@ -770,11 +933,28 @@
           const n = new Notification('💬 新留言 · ' + who, { body: text, tag: 'puffer-msg' });
           n.onclick = () => { try { window.focus(); } catch (e) {} goPage('messages'); n.close(); };
         } else if (Notification.permission === 'default') {
-          // 首次弹窗请求授权（用户允许后后续消息才会真正弹出系统通知）
-          Notification.requestPermission().catch(() => {});
+          // 轮询回调里 requestPermission 无用户手势会被浏览器忽略，这里改为引导用户去开启
+          if (!state.settings._notifyHintShown) {
+            state.settings._notifyHintShown = true;
+            save({ silent: true });
+            toast('收到新留言啦～点留言板右上角 🔔 可开启系统通知', 'info');
+          }
+        } else if (Notification.permission === 'denied') {
+          if (!state.settings._notifyHintDeniedShown) {
+            state.settings._notifyHintDeniedShown = true;
+            save({ silent: true });
+            toast('系统通知被浏览器拒绝：点地址栏左侧图标 → 网站设置 → 通知 → 允许', 'info');
+          }
         }
       }
-    } catch (e) { /* 系统通知不可用则忽略，仅保留 A 方案 */ }
+    } catch (e) { /* 系统通知不可用则忽略，仅保留 A/C 方案 */ }
+  }
+
+  // 标题未读角标：后台/最小化时也能看到有新留言（不依赖系统通知权限）
+  const BASE_TITLE = document.title;
+  function updateTitleBadge() {
+    const n = state.settings.unreadMsgCount || 0;
+    document.title = (n > 0 && !isMessagesActive()) ? '💌(' + n + ') ' + BASE_TITLE : BASE_TITLE;
   }
 
   // 反映系统通知开关按钮状态
@@ -899,7 +1079,8 @@
     else if (hour < 22) greet = '晚上好，今天辛苦啦～';
     else greet = '夜深了，别太晚睡哦';
     const p = state.settings.partners || { a: '孙大炮', b: '童大侠' };
-    $('#mascotBubble').textContent = `${p.a}、${p.b}，${greet}`;
+    mascotGreeting = `${p.a}、${p.b}，${greet}`;
+    $('#mascotBubble').textContent = mascotGreeting;
     const greetEmoji = hour < 6 ? '🌙' : hour < 12 ? '🌞' : hour < 14 ? '🍱' : hour < 18 ? '☕' : hour < 22 ? '🌇' : '🌜';
     const tname = hour < 6 ? '夜深了' : hour < 12 ? '早安' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : hour < 22 ? '晚上好' : '夜深了';
     const dwg = $('#dwGreeting');
@@ -1467,6 +1648,11 @@
     const cloud = state.settings.cloudUrl;
     const dot = $('#syncDot');
     const text = $('#syncText');
+    if (syncFailed && state.settings.room && state.settings.room.joined) {
+      dot.className = 'sync-dot error';
+      text.textContent = '同步失败·点重试';
+      return;
+    }
     if (state.settings.room && state.settings.room.joined) {
       dot.className = 'sync-dot cloud';
       text.textContent = '共享:' + state.settings.room.id;
@@ -1479,6 +1665,18 @@
     } else {
       dot.className = 'sync-dot';
       text.textContent = '本地';
+    }
+  }
+
+  // 同步进行中：pill 显示「同步中…」；结束(on=false)按最新状态刷新最终态
+  function setSyncPillBusy(on) {
+    const dot = $('#syncDot');
+    const text = $('#syncText');
+    if (on) {
+      if (dot) dot.className = 'sync-dot cloud';
+      if (text) text.textContent = '同步中…';
+    } else {
+      updateSyncPill();
     }
   }
 
@@ -1702,7 +1900,10 @@
   }
 
   // 同步 pill 点击
-  $('#syncPill').addEventListener('click', openSyncModal);
+  $('#syncPill').addEventListener('click', () => {
+    if (syncFailed) { pushToRoom(); }   // 失败后点药丸直接重试，不必进设置
+    else openSyncModal();
+  });
   $('#settingsBtn').addEventListener('click', openSyncModal);
 
   // 处理 URL hash 中的同步数据
@@ -1828,15 +2029,25 @@
   async function roomGet(url, id, pass) {
     const r = state.settings.room;
     if (r.backend === 'supabase') {
+      // 走 Edge Function：anon 永远拿不到表 / pass 明文
       const base = url.replace(/\/$/, '');
-      const res = await fetch(`${base}/rest/v1/rooms?id=eq.${encodeURIComponent(id)}&select=id,data,rev,updated_at&pass=eq.${encodeURIComponent(pass)}`, {
-        headers: { 'apikey': r.anon, 'Authorization': 'Bearer ' + r.anon }
+      const res = await fetch(`${base}/functions/v1/room-get`, {
+        method: 'POST',
+        headers: {
+          'apikey': r.anon,
+          'Authorization': 'Bearer ' + r.anon,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id, pass })
       });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const arr = await res.json();
-      if (!Array.isArray(arr) || arr.length === 0) throw new Error('房间不存在');
-      const row = arr[0];
-      return { ok: true, data: row.data, rev: row.rev, updatedAt: row.updated_at };
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (body.error === 'forbidden') throw new Error('口令错误');
+        if (body.error === 'not_found') throw new Error('房间不存在');
+        if (body.error === 'need_migration') throw new Error('房间需要迁移，请在原设备同步一次');
+        throw new Error('HTTP ' + res.status);
+      }
+      return { ok: true, data: body.data, rev: body.rev, updatedAt: body.updatedAt };
     }
     // Cloudflare Workers 后端
     const res = await fetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
@@ -1852,25 +2063,24 @@
   async function roomPut(url, id, pass, data) {
     const r = state.settings.room;
     if (r.backend === 'supabase') {
+      // 走 Edge Function：服务端写 pass 哈希，客户端不再持有明文存储
       const base = url.replace(/\/$/, '');
-      const body = { id, data, rev: Date.now(), pass, updated_at: new Date().toISOString() };
-      const res = await fetch(`${base}/rest/v1/rooms`, {
+      const res = await fetch(`${base}/functions/v1/room-put`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': r.anon,
           'Authorization': 'Bearer ' + r.anon,
-          'Prefer': 'resolution=merge-duplicates, return=representation'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ id, pass, data, rev: r.lastRev })
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const t = await res.text().catch(() => '');
-        throw new Error('HTTP ' + res.status + (t ? ' ' + t.slice(0, 120) : ''));
+        if (body.error === 'forbidden') throw new Error('口令错误');
+        if (body.error === 'conflict') throw new Error('版本冲突（请稍后重试）');
+        throw new Error('HTTP ' + res.status);
       }
-      const arr = await res.json();
-      const rev = (arr && arr[0] && arr[0].rev) || Date.now();
-      return { ok: true, rev, updatedAt: Date.now() };
+      return { ok: true, rev: body.rev, updatedAt: Date.now() };
     }
     // Cloudflare Workers 后端
     const res = await fetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}`, {
@@ -1892,28 +2102,72 @@
     pushTimer = setTimeout(pushToRoom, 1000);
   }
 
+  // 同步失败自动重试（退避），最多 3 次；同时把错误留在 pill 上供一键重试
+  let syncFailed = false;
+  let syncRetryCount = 0;
+  let syncRetryTimer = null;
+  const MAX_SYNC_RETRY = 3;
+  // 版本冲突自动重试：重新拉取→合并→再写，最多 2 次（化解双端竞态）
+  let conflictRetryCount = 0;
+  const MAX_CONFLICT_RETRY = 2;
+  function scheduleSyncRetry() {
+    if (!roomActive()) return;
+    if (syncRetryCount >= MAX_SYNC_RETRY) return;
+    syncRetryCount++;
+    const delay = syncRetryCount * 20000; // 20s / 40s / 60s
+    clearTimeout(syncRetryTimer);
+    syncRetryTimer = setTimeout(() => { pushToRoom(); }, delay);
+  }
+
   // 返回 true 表示成功，false 表示失败（内部已 toast）
   async function pushToRoom() {
     if (!roomActive()) return false;
     const r = state.settings.room;
+    setSyncPillBusy(true);
     try {
-      const remote = await roomGet(r.url, r.id, r.pass);
-      mergeState(state, remote.data);
-      r.lastRev = remote.rev;
-    } catch (e) {
-      if (e.message !== '房间不存在') { toast('同步失败：' + e.message, 'error'); return false; }
+      try {
+        const prevIds = new Set(state.messages.map(m => m.id));
+        const remote = await roomGet(r.url, r.id, r.pass);
+        mergeState(state, remote.data);
+        r.lastRev = remote.rev;
+        checkNewMessages(prevIds); // 打开/同步时立即发现对方新留言
+      } catch (e) {
+        if (e.message !== '房间不存在') { toast('同步失败：' + e.message, 'error'); syncFailed = true; scheduleSyncRetry(); return false; }
+      }
+      try {
+        const resp = await roomPut(r.url, r.id, r.pass, serializeRoom());
+        r.lastRev = resp.rev;
+        r.lastSync = Date.now();
+        syncFailed = false; syncRetryCount = 0; clearTimeout(syncRetryTimer);
+        conflictRetryCount = 0;
+        save({ silent: true });
+        renderCurrent();
+        return true;
+      } catch (e) {
+        const isConflict = e.message === '版本冲突（请稍后重试）';
+        if (isConflict && conflictRetryCount < MAX_CONFLICT_RETRY) {
+          // 对方也在写：快照过期。重新拉取-合并-再写，自动化解竞态
+          conflictRetryCount++;
+          await new Promise(r => setTimeout(r, 400));
+          return pushToRoom();
+        }
+        conflictRetryCount = 0;
+        toast('同步失败：' + e.message, 'error');
+        syncFailed = true; scheduleSyncRetry();
+        return false;
+      }
+    } finally {
+      setSyncPillBusy(false); // 无论成功失败，都按最新状态实时刷新 pill
     }
-    try {
-      const resp = await roomPut(r.url, r.id, r.pass, serializeRoom());
-      r.lastRev = resp.rev;
-      r.lastSync = Date.now();
-      save();
-      renderCurrent();
-      return true;
-    } catch (e) {
-      toast('同步失败：' + e.message, 'error');
-      return false;
-    }
+  }
+
+  // 检测来自对方的新留言：正在看留言页时不打扰（pollRoom 与 pushToRoom 共用）
+  function checkNewMessages(prevIds) {
+    if (isMessagesActive()) return;
+    const me = state.settings.me || 'a';
+    live(state.messages).forEach(m => {
+      if (!prevIds.has(m.id) && m.author !== me) notifyNewMessage(m);
+    });
   }
 
   async function pollRoom() {
@@ -1923,18 +2177,11 @@
       const remote = await roomGet(r.url, r.id, r.pass);
       if (remote.rev === r.lastRev) return; // 无变化
       const prevIds = new Set(state.messages.map(m => m.id));
-      const me = state.settings.me || 'a';
-      const messagesActive = isMessagesActive();
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
       r.lastSync = Date.now();
-      save();
-      // 检测来自对方的新留言：仅当未停留在留言页时通知，避免打扰
-      if (!messagesActive) {
-        live(state.messages).forEach(m => {
-          if (!prevIds.has(m.id) && m.author !== me) notifyNewMessage(m);
-        });
-      }
+      save({ silent: true });
+      checkNewMessages(prevIds);
       renderCurrent();
       toast('已收到对方的更新 ✨');
     } catch (e) { /* 轮询静默失败 */ }
@@ -2002,8 +2249,8 @@
     const s = state.settings;
     const now = Date.now();
     const WEEK = 7 * 24 * 60 * 60 * 1000;
-    // 首次运行只建立基线，不立即删除（避免部署当天误删现有数据）
-    if (!s.lastClean) { s.lastClean = now; save(); return; }
+    // 首次运行只建立基线，不立即删除（避免部署当天误删现有数据）；silent：基线无数据变更，不触发多余推送
+    if (!s.lastClean) { s.lastClean = now; save({ silent: true }); return; }
     if (now - s.lastClean < WEEK) return; // 未满一周，跳过
 
     const cutoff = now - WEEK;
@@ -2041,6 +2288,14 @@
     pushToRoom();
     startRoomPolling();
   }
+  // 切回前台：立即拉一次最新数据并刷新角标（后台 tab 定时器会被浏览器节流，靠这个补偿）
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      pollRoom();
+      updateMsgBadge();
+      updateTitleBadge();
+    }
+  });
   updateMsgBadge();
   updateMsgNotifyBtn();
   goPage('dashboard');

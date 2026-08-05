@@ -4,3 +4,4 @@ node_modules/
 
 .deploy_token
 .git_token_helper.sh
+supabase/.temp/

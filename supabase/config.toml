@@ -1,0 +1,11 @@
+# Supabase 项目配置（仅用于部署 Edge Functions）
+# 项目 ref: chfczfrkgndgudcxoump
+# 注意：两个函数都用自己的房间口令做校验（不依赖 Supabase 登录），
+#       因此必须关闭 JWT 校验，否则 anon 请求会被网关挡在门外。
+project_id = "chfczfrkgndgudcxoump"
+
+[functions.room-get]
+verify_jwt = false
+
+[functions.room-put]
+verify_jwt = false

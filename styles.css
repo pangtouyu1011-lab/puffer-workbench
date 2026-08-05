@@ -14,7 +14,7 @@
   --cream-deep: #F6EADF;
   --ink: #3B3228;
   --ink-soft: #6E6152;
-  --muted: #A08F7E;
+  --muted: #8A7667;
   --line: #EDE3D8;
   --pink: #E87F9F;
   --pink-deep: #D75F86;
@@ -112,6 +112,79 @@ body {
   15%  { opacity: .55; }
   55%  { opacity: .4; }
   100% { transform: translateY(-110vh) scale(1.05); opacity: 0; }
+}
+
+/* ===== 背景：河豚主题像素漂浮物（爱心 / 星星 / 小河豚） ===== */
+.bg-motes {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.mote {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  animation: moteDrift 26s ease-in-out infinite;
+  will-change: transform;
+}
+/* 像素爱心（7×6，块=4px） */
+.mote-heart { width: 28px; height: 24px; --ms: 1; }
+.mote-heart::before {
+  content: '';
+  display: block;
+  width: 4px; height: 4px;
+  background: #E56B3A;
+  box-shadow:
+    4px 0, 8px 0, 20px 0, 24px 0,
+    0 4px, 4px 4px, 8px 4px, 12px 4px, 16px 4px, 20px 4px, 24px 4px,
+    0 8px, 4px 8px, 8px 8px, 12px 8px, 16px 8px, 20px 8px, 24px 8px,
+    4px 12px, 8px 12px, 12px 12px, 16px 12px, 20px 12px,
+    8px 16px, 12px 16px, 16px 16px,
+    12px 20px;
+}
+/* 像素星星（5×5，块=3px） */
+.mote-star { width: 15px; height: 15px; --ms: 1; }
+.mote-star::before {
+  content: '';
+  display: block;
+  width: 3px; height: 3px;
+  background: #F2B45C;
+  box-shadow:
+    6px 0,
+    3px 3px, 6px 3px, 9px 3px,
+    0 6px, 3px 6px, 6px 6px, 9px 6px, 12px 6px,
+    3px 9px, 9px 9px,
+    3px 12px, 9px 12px;
+}
+/* 小河豚（复用 puffer.png） */
+.mote-puff { width: 34px; height: 34px; --ms: 1; }
+.mote-puff::before {
+  content: '';
+  display: block;
+  width: 100%; height: 100%;
+  background: url('assets/puffer.png') center / contain no-repeat;
+}
+/* 位置与动画参数 */
+.mote-heart.h1 { left: 11%; top: 62%; --ms: 1.7;  animation-duration: 25s; }
+.mote-heart.h2 { left: 76%; top: 78%; --ms: 1.25; animation-duration: 30s; animation-delay: -11s; }
+.mote-star.s1  { left: 30%; top: 48%; --ms: 1.15; animation-duration: 22s; animation-delay: -4s; }
+.mote-star.s2  { left: 88%; top: 32%; --ms: 1.5;  animation-duration: 27s; animation-delay: -15s; }
+.mote-star.s3  { left: 5%;  top: 24%; --ms: 1;    animation-duration: 24s; animation-delay: -9s; }
+.mote-puff.p1  { left: 60%; top: 66%; --ms: 1.25; animation-duration: 28s; animation-delay: -13s; }
+.mote-puff.p2  { left: 42%; top: 16%; --ms: 1.6;  animation-duration: 24s; animation-delay: -19s; }
+
+@keyframes moteDrift {
+  0%   { transform: translate3d(0, 16vh, 0) rotate(-7deg) scale(var(--ms, 1)); opacity: 0; }
+  14%  { opacity: .72; }
+  50%  { opacity: .55; transform: translate3d(16px, -44vh, 0) rotate(5deg) scale(calc(var(--ms, 1) * 1.05)); }
+  86%  { opacity: .42; }
+  100% { transform: translate3d(-12px, -108vh, 0) rotate(-4deg) scale(var(--ms, 1)); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-bubbles span, .mote { animation: none !important; opacity: .3 !important; }
 }
 
 /* ============= 布局 ============= */
@@ -321,7 +394,8 @@ body {
   box-shadow: 0 0 0 3px rgba(95,168,124,.16);
 }
 .sync-dot.cloud { background: var(--primary); box-shadow: 0 0 0 3px rgba(229,107,58,.16); }
-.sync-dot.error { background: var(--pink-deep); box-shadow: 0 0 0 3px rgba(215,95,134,.16); }
+.sync-dot.error { background: var(--pink-deep); box-shadow: 0 0 0 3px rgba(215,95,134,.16); animation: syncPulse 1.4s ease-in-out infinite; }
+@keyframes syncPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: .65; } }
 
 /* ============= Sidebar ============= */
 .sidebar {
@@ -380,13 +454,29 @@ body {
   text-align: center;
   box-shadow: var(--shadow-sm);
 }
-.mascot-mini img { width: 56px; height: 56px; border-radius: 12px; }
+.mascot-mini img { width: 56px; height: 56px; border-radius: 12px; cursor: pointer; transition: transform .2s ease; }
 .mascot-quote { font-family: var(--font-body); font-size: 12.5px; color: var(--ink-soft); margin-top: 6px; font-weight: 500; }
+
+/* 胖头鱼交互：戳一下鼓起来 + 气泡弹入 */
+.mascot-img, .mascot-mini img { cursor: pointer; transition: transform .2s ease; }
+.mascot-img.puff, .mascot-mini img.puff { animation: mascotPuff .6s ease; }
+.mascot-bubble.pop { animation: bubblePop .35s ease; }
+@keyframes mascotPuff {
+  0%   { transform: scale(1) rotate(0); }
+  35%  { transform: scale(1.18) rotate(-6deg); }
+  60%  { transform: scale(.94) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes bubblePop {
+  0%   { transform: scale(.85); opacity: .4; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
 
 /* ============= Content ============= */
 .content {
   grid-area: content;
-  padding: 0 0 80px 0;
+  padding: 0 0 88px 0;
   min-width: 0;
 }
 
@@ -1135,9 +1225,14 @@ body {
 /* 响应式：放在 .wish-wall 基础规则之后，避免被后面的 columns:3 覆盖 */
 @media (max-width: 900px) {
   .wish-wall { columns: 2; column-gap: 12px; }
+  /* 移动端底栏遮挡：滚动内容底部多留安全空间 */
+  .content { padding-bottom: 112px; }
+  /* 移动端：隐藏会飘到标题区中间的背景小河豚，避免视觉干扰 */
+  .mote-puff.p2 { display: none; }
 }
 @media (max-width: 480px) {
   .wish-wall { columns: 1; }
+  .wish-hero .wh-text { font-size: 15px; }
 }
 .wish-note {
   break-inside: avoid;
@@ -1192,6 +1287,20 @@ body {
   transition: background .15s, color .15s, transform .12s;
 }
 .wish-del:hover { background: rgba(215,95,134,.85); color: #fff; transform: scale(1.1); }
+/* 心愿点亮：TA 看到后的反馈 */
+.wish-lit-btn {
+  border: 1px solid rgba(229,107,58,.45); cursor: pointer;
+  background: rgba(255,255,255,.75); color: var(--primary-deep);
+  font-size: 11px; font-weight: 700;
+  border-radius: 999px; padding: 3px 9px;
+  transition: background .15s, transform .12s, box-shadow .15s;
+}
+.wish-lit-btn:hover { background: var(--primary); color: #fff; transform: scale(1.06); box-shadow: 0 3px 10px -3px rgba(229,107,58,.5); }
+.wish-lit {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: #D96C8F; font-weight: 700;
+  background: rgba(255,255,255,.65); border-radius: 999px; padding: 3px 9px;
+}
 /* 便签底色 */
 .note-peach { background: linear-gradient(160deg, #FFE9D8, #FFD9BC); }
 .note-mint  { background: linear-gradient(160deg, #DFF3E9, #C8EBD9); }
