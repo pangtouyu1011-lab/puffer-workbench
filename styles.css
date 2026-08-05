@@ -1092,6 +1092,7 @@ body {
   .wd { padding: 8px 2px; font-size: 12px; }
   .wd .wd-name { font-size: 12px; }
   .wd .wd-plan { font-size: 10px; }
+  .wish-wall { columns: 2; column-gap: 12px; }
 }
 
 @media (max-width: 480px) {
@@ -1104,6 +1105,7 @@ body {
   .mascot-bubble { max-width: none; }
   .train-item { flex-direction: column; }
   .train-date { width: 100%; }
+  .wish-wall { columns: 1; }
 }
 
 @media (min-width: 1200px) {
@@ -1114,3 +1116,143 @@ body {
 .msg-empty { text-align: center; padding: 30px 10px; color: var(--muted); font-size: 14px; }
 .msg-time { font-size: 11px; color: var(--muted); }
 .gm-del { flex: none !important; padding: 4px 10px !important; }
+
+/* ============= 心愿墙 ============= */
+.wish-hero {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; margin-bottom: 20px;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(229,107,58,.10), transparent 42%),
+    linear-gradient(135deg, #FFF9F1, #FFF1E4);
+  border-radius: 18px;
+}
+.wish-hero .wh-icon { font-size: 30px; flex-shrink: 0; }
+.wish-hero .wh-text { font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; }
+.wish-hero .wh-text b { color: var(--primary-deep); font-weight: 700; }
+
+.wish-wall {
+  columns: 3;
+  column-gap: 16px;
+}
+.wish-note {
+  break-inside: avoid;
+  margin-bottom: 16px;
+  padding: 20px 18px 14px;
+  position: relative;
+  border-radius: 6px 18px 14px 6px;
+  box-shadow: 0 6px 20px -8px rgba(59,50,40,.22);
+  transform: rotate(var(--tilt, 0deg));
+  transition: transform .22s ease, box-shadow .25s ease, z-index 0s;
+  animation: wishIn .35s ease backwards;
+}
+.wish-note:hover {
+  transform: rotate(0deg) translateY(-5px) scale(1.02);
+  box-shadow: 0 16px 34px -12px rgba(59,50,40,.32);
+  z-index: 3;
+}
+@keyframes wishIn { from { opacity: 0; transform: rotate(var(--tilt,0deg)) translateY(14px) scale(.96); } to { opacity: 1; transform: rotate(var(--tilt,0deg)) translateY(0) scale(1); } }
+/* 胶带 */
+.wish-note::before {
+  content: '';
+  position: absolute; top: -9px; left: 50%; transform: translateX(-50%) rotate(-2deg);
+  width: 72px; height: 17px;
+  background: rgba(255,255,255,.55);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(59,50,40,.08);
+}
+.wish-icon { font-size: 24px; line-height: 1; }
+.wish-text {
+  font-size: 14.5px; line-height: 1.75; color: #4A3B2E; font-weight: 500;
+  margin-top: 10px; word-break: break-word; white-space: pre-wrap;
+}
+.wish-foot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding-top: 10px;
+  border-top: 1px dashed rgba(74,59,46,.22);
+  font-size: 11.5px; font-weight: 600; color: rgba(74,59,46,.62);
+}
+.wish-who { display: inline-flex; align-items: center; gap: 3px; }
+.wish-date { margin-left: auto; opacity: .75; }
+.wish-del {
+  border: none; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,.6); color: rgba(74,59,46,.55);
+  font-size: 11px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s, transform .12s;
+}
+.wish-del:hover { background: rgba(215,95,134,.85); color: #fff; transform: scale(1.1); }
+/* 便签底色 */
+.note-peach { background: linear-gradient(160deg, #FFE9D8, #FFD9BC); }
+.note-mint  { background: linear-gradient(160deg, #DFF3E9, #C8EBD9); }
+.note-sky   { background: linear-gradient(160deg, #DFF0FB, #C4E2F6); }
+.note-lilac { background: linear-gradient(160deg, #EDE7FB, #DBD2F5); }
+.note-lemon { background: linear-gradient(160deg, #FFF7DA, #FFEDBA); }
+/* 写心愿弹窗 */
+.wish-icon-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.wish-icon-opt {
+  width: 42px; height: 42px;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 12px; font-size: 20px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform .12s, border-color .15s, background .15s, box-shadow .15s;
+}
+.wish-icon-opt:hover { transform: translateY(-2px); border-color: #E4D5C4; }
+.wish-icon-opt.sel {
+  background: var(--primary-soft); border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(229,107,58,.16);
+  transform: translateY(-2px) scale(1.06);
+}
+/* switch 开关 */
+.switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14px; color: var(--ink); user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch span {
+  position: relative; width: 42px; height: 24px;
+  background: #E4DACB; border-radius: 999px;
+  transition: background .2s ease;
+  flex-shrink: 0;
+}
+.switch span::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(59,50,40,.25);
+  transition: transform .2s ease;
+}
+.switch input:checked + span { background: linear-gradient(135deg, #F08A5C, var(--primary)); }
+.switch input:checked + span::after { transform: translateX(18px); }
+/* 空状态 */
+.wish-empty {
+  text-align: center; padding: 48px 16px;
+  color: var(--muted); font-size: 15px; line-height: 2;
+  background: rgba(255,255,255,.55);
+  border: 1.5px dashed var(--line);
+  border-radius: 18px;
+}
+.wish-empty span { font-size: 13px; color: #B5A696; }
+
+/* ============= 高端质感精修 ============= */
+/* 页面标题渐变装饰线 */
+.page-title { position: relative; padding-bottom: 10px; }
+.page-title::after {
+  content: '';
+  position: absolute; left: 0; bottom: 0;
+  width: 44px; height: 3px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-light));
+}
+/* 数字渐变（普通统计卡） */
+.stat-value { background: linear-gradient(180deg, #5A4A3B, var(--ink)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.stat-orange .stat-value, .stat-brown .stat-value, .water-mini .stat-value { background: none; -webkit-text-fill-color: currentColor; }
+/* 主按钮内高光 */
+.pixel-btn.primary { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 6px 16px -6px rgba(229,107,58,.5); }
+/* 滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #E2D5C3; border-radius: 8px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #D3C2AB; }
+::selection { background: rgba(229,107,58,.22); }
+/* 底部导航 7 项适配 */
+.bn-item small { font-size: 10px; }
+.bn-item span { font-size: 17px; }
+/* modal 上浮动画 */
+.modal { animation: modalUp .28s cubic-bezier(.2,.8,.3,1) backwards; }
+@keyframes modalUp { from { opacity: 0; transform: translateY(26px) scale(.97); } to { opacity: 1; transform: none; } }

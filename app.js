@@ -84,6 +84,7 @@
     messages: [],
     gallery: [],
     meals: defaultMeals(),
+    wishes: [],
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
       me: 'a',
@@ -109,6 +110,7 @@
       if (!state.messages) state.messages = [];
       if (!state.gallery) state.gallery = [];
       if (!state.meals) state.meals = defaultMeals();
+      if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
       if (state.settings.lastClean === undefined) state.settings.lastClean = 0;
         if (!state.settings.room) state.settings.room = { backend: 'supabase', url: 'https://chfczfrkgndgudcxoump.supabase.co', anon: 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
@@ -164,6 +166,7 @@
       case 'todo': renderTodo(); break;
       case 'fitness': renderFitness(); break;
       case 'messages': renderMessages(); break;
+      case 'wishes': renderWishes(); break;
       case 'meal': renderMeal(); break;
       case 'calendar': renderCalendar(); break;
     }
@@ -382,6 +385,107 @@
     state.messages.push({ id: uid(), author: state.settings.me || 'a', text: text, createdAt: Date.now(), updatedAt: Date.now() });
     save(); ta.value = ''; renderMessages(); scheduleRoomPush(); toast('已发送 💌');
   }
+
+  // ==========================================
+  // 5.5 心愿墙（两人共享，可匿名偷偷写）
+  // ==========================================
+  const WISH_ICONS = ['✨','💖','🌟','🌈','🍀','🎁','🌸','🦋','🌙','🔥'];
+  const WISH_ICON_TIP = { '✨':'星光','💖':'爱心','🌟':'星星','🌈':'彩虹','🍀':'幸运','🎁':'礼物','🌸':'花','🦋':'蝴蝶','🌙':'月亮','🔥':'热情' };
+  const WISH_COLORS = ['peach','mint','sky','lilac','lemon'];
+
+  function renderWishes() {
+    const wall = $('#wishWall');
+    if (!wall) return;
+    const me = state.settings.me || 'a';
+    const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
+    const items = live(state.wishes).slice().sort((a, b) => b.createdAt - a.createdAt);
+    if (items.length === 0) {
+      wall.innerHTML = '<div class="wish-empty">🌙 心愿墙还是空的<br><span>点「✨ 写心愿」，偷偷贴一张上去</span></div>';
+      return;
+    }
+    wall.innerHTML = items.map(w => {
+      const who = w.anonymous ? '匿名' : (w.author === 'a' ? partners.a : partners.b);
+      const whoIcon = w.anonymous ? '🕯️' : '👤';
+      const mine = w.author === me;
+      return '<div class="wish-note note-' + (w.color || 'peach') + '"' + (w.tilt ? ' style="--tilt:' + w.tilt + 'deg"' : '') + '>' +
+        '<div class="wish-pin"></div>' +
+        '<div class="wish-icon">' + (w.icon || '✨') + '</div>' +
+        '<div class="wish-text">' + escapeHtml(w.text) + '</div>' +
+        '<div class="wish-foot">' +
+          '<span class="wish-who">' + whoIcon + ' ' + escapeHtml(who) + '</span>' +
+          '<span class="wish-date">' + monthDay(w.createdAt) + '</span>' +
+          (mine ? '<button class="wish-del" data-act="del-wish" data-id="' + w.id + '" title="撕掉这张心愿">✕</button>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function openWishModal() {
+    const opts = WISH_ICONS.map((i, idx) =>
+      '<button class="wish-icon-opt' + (idx === 0 ? ' sel' : '') + '" data-icon="' + i + '" title="' + (WISH_ICON_TIP[i] || '') + '">' + i + '</button>'
+    ).join('');
+    openModal({
+      title: '🕯️ 写下一个心愿',
+      body: '<div class="form-row">' +
+        '<label>心愿内容</label>' +
+        '<textarea class="pixel-textarea" id="wishText" placeholder="比如：想去海边看一次日出 🌅" maxlength="120"></textarea>' +
+        '<div class="file-hint">不超过 120 字，写点真心话</div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<label>配个小图标</label>' +
+        '<div class="wish-icon-pick" id="wishIconPick">' + opts + '</div>' +
+      '</div>' +
+      '<div class="checkbox-row">' +
+        '<label class="switch"><input type="checkbox" id="wishAnonymous" checked /><span></span>匿名写下（不显示名字）</label>' +
+      '</div>',
+      foot: '<button class="pixel-btn ghost" data-act="modal-cancel">取消</button>' +
+            '<button class="pixel-btn primary" id="wishSubmit">贴上心愿墙 ✨</button>'
+    });
+    // 图标选择
+    $$('#wishIconPick .wish-icon-opt').forEach(b => b.addEventListener('click', () => {
+      $$('#wishIconPick .wish-icon-opt').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+    }));
+    $('#wishSubmit').addEventListener('click', submitWish);
+    const cancel = $('[data-act="modal-cancel"]');
+    if (cancel) cancel.addEventListener('click', closeModal);
+    const ta = $('#wishText');
+    if (ta) {
+      ta.focus();
+      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitWish(); });
+    }
+  }
+
+  function submitWish() {
+    const ta = $('#wishText');
+    const text = ta.value.trim();
+    if (!text) { toast('写点什么吧', 'error'); return; }
+    const sel = $('#wishIconPick .wish-icon-opt.sel');
+    state.wishes.push({
+      id: uid(),
+      text: text,
+      icon: sel ? sel.dataset.icon : '✨',
+      anonymous: $('#wishAnonymous') ? $('#wishAnonymous').checked : true,
+      author: state.settings.me || 'a',
+      color: WISH_COLORS[Math.floor(Math.random() * WISH_COLORS.length)],
+      tilt: (Math.random() * 8 - 4).toFixed(1),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    save(); closeModal(); renderWishes(); scheduleRoomPush(); toast('心愿已贴上 ✨');
+  }
+
+  // 心愿墙按钮与删除事件（只绑一次）
+  const addWishBtn = $('#addWishBtn');
+  if (addWishBtn) addWishBtn.addEventListener('click', openWishModal);
+  document.addEventListener('click', (e) => {
+    const wd = e.target.closest('[data-act="del-wish"]');
+    if (wd) {
+      const w = state.wishes.find(x => x.id === wd.dataset.id);
+      if (w) { w.deleted = true; w.updatedAt = Date.now(); }
+      save(); renderWishes(); scheduleRoomPush(); toast('已撕掉这张心愿');
+    }
+  });
 
   // 留言板 / 照片管理 事件绑定（脚本加载时只绑一次）
   const msgSendBtn = $('#msgSend');
@@ -1630,6 +1734,7 @@
       messages: state.messages,
       gallery: state.gallery,
       meals: state.meals,
+      wishes: state.wishes,
       water: state.water,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
@@ -1677,6 +1782,7 @@
       messages: mergeArr(local.messages, remote.messages),
       gallery: mergeArr(local.gallery, remote.gallery),
       meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
+      wishes: mergeArr(local.wishes, remote.wishes),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
       water: (() => {
         const out = Object.assign({}, local.water || {});
