@@ -315,7 +315,7 @@
         <div class="stat-grid">
           <div class="stat-card pixel-border stat-orange">
             <span class="stat-icon">✅</span>
-            <div class="stat-label">今日待办</div>
+            <div class="stat-label">待办事项</div>
             <div class="stat-value" id="statTodo">0</div>
             <div class="stat-sub" id="statTodoSub">待完成</div>
           </div>
@@ -332,7 +332,7 @@
             <span class="stat-icon">🔥</span>
             <div class="stat-label">本周训练</div>
             <div class="stat-value" id="statWeek">0</div>
-            <div class="stat-sub">天已完成</div>
+            <div class="stat-sub">个动作</div>
           </div>
           <div class="stat-card pixel-border water-mini" id="waterCard" title="点击 +/− 打卡喝水量">
             <span class="stat-icon">💧</span>
@@ -365,7 +365,7 @@
         <div class="dash-grid">
           <div class="card pixel-border">
             <div class="card-head">
-              <h3>🔥 今日待办</h3>
+              <h3>🔥 待办事项</h3>
               <button class="link-btn" data-goto="todo">查看全部 →</button>
             </div>
             <ul class="mini-list" id="dashTodoList">
@@ -457,9 +457,15 @@
 
         <div class="card pixel-border">
           <div class="card-head">
-            <h3>训练记录</h3>
-            <span class="muted" id="trainCount">0 条</span>
+            <h3>训练日记</h3>
+            <div class="day-nav">
+              <button class="pill" id="trainPrev" title="前一天">‹</button>
+              <button class="pill day-now" id="trainToday">今天</button>
+              <button class="pill" id="trainNext" title="后一天">›</button>
+            </div>
           </div>
+          <div class="day-label" id="trainSelDate">--</div>
+          <div class="day-summary" id="trainSummary"></div>
           <ul class="train-list" id="trainList"></ul>
         </div>
       </section>

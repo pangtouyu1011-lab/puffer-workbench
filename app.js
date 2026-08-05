@@ -681,17 +681,20 @@
     }
 
 
-    // 本周训练天数
+    // 本周完成动作数（按训练记录里每行动作统计，不再按"天"）
     const weekStart = new Date(d);
     weekStart.setDate(d.getDate() - wk);
     weekStart.setHours(0,0,0,0);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 7);
-    const weekCount = state.trainings.filter(t => {
+    const weekActions = state.trainings.reduce((sum, t) => {
+      if (t.deleted) return sum;
       const td = new Date(t.date);
-      return td >= weekStart && td < weekEnd && !t.deleted;
-    }).length;
-    $('#statWeek').textContent = weekCount;
+      if (td < weekStart || td >= weekEnd) return sum;
+      const lines = (t.content || '').split('\n').map(s => s.trim()).filter(Boolean);
+      return sum + lines.length;
+    }, 0);
+    $('#statWeek').textContent = weekActions;
 
     // 喝水记录
     renderWater();
@@ -1010,6 +1013,18 @@
   // ==========================================
   // 7. 健身
   // ==========================================
+  let fitnessSelDate = '';
+  function shiftDateKey(key, delta) {
+    const [y, m, d] = key.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + delta);
+    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  }
+  function formatDateLabel(key) {
+    const [y, m, d] = key.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return `${m}月${d}日 ${weekName(dt.getDay())}`;
+  }
   function renderFitness() {
     const d = new Date();
     const wk = d.getDay();
@@ -1060,14 +1075,20 @@
       ` : ''}
     `;
 
-    // 训练记录列表
-    const list = live(state.trainings).slice().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
-    $('#trainCount').textContent = `${list.length} 条`;
+    // 训练日记：按选中日期查看，可前后翻看每天
+    if (!fitnessSelDate) fitnessSelDate = todayKey();
+    const selList = live(state.trainings).filter(t => t.date === fitnessSelDate)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const selActions = selList.reduce((s, t) => s + (t.content || '').split('\n').map(x => x.trim()).filter(Boolean).length, 0);
+    const selLabelEl = $('#trainSelDate');
+    if (selLabelEl) selLabelEl.textContent = formatDateLabel(fitnessSelDate) + (fitnessSelDate === todayKey() ? ' · 今天' : '');
+    const sumEl = $('#trainSummary');
+    if (sumEl) sumEl.textContent = selList.length ? `${selList.length} 次训练 · ${selActions} 个动作` : '这天还没有训练记录';
     const tl = $('#trainList');
-    if (list.length === 0) {
-      tl.innerHTML = '<li class="train-empty">还没有训练记录，开始你的第一次吧 💪</li>';
+    if (selList.length === 0) {
+      tl.innerHTML = '<li class="train-empty">这天还没记录，点右上角「+ 记录训练」补上吧 💪</li>';
     } else {
-      tl.innerHTML = list.map(t => {
+      tl.innerHTML = selList.map(t => {
         const d2 = new Date(t.date);
         return `
           <li class="train-item" data-id="${t.id}">
@@ -1083,6 +1104,7 @@
                 <span class="pill">${escapeHtml(weekName(d2.getDay()))}</span>
                 ${t.weight ? `<span class="pill">重量: ${escapeHtml(t.weight)}</span>` : ''}
                 ${t.duration ? `<span class="pill">时长: ${escapeHtml(t.duration)}</span>` : ''}
+                <button class="pill" data-act="edit-train" style="cursor:pointer;background:var(--puffer-cream);color:var(--border);border:2px solid var(--border);">✎ 编辑</button>
                 <button class="pill del-btn" data-act="del-train" style="cursor:pointer;background:var(--puffer-pink-deep);color:#fff;border:2px solid var(--border);">删除</button>
               </div>
             </div>
@@ -1092,47 +1114,49 @@
     }
   }
 
-  function openTrainModal() {
+  function openTrainModal(editId) {
+    const editing = editId ? state.trainings.find(t => t.id === editId) : null;
     const d = new Date();
     const wk = d.getDay();
     const plan = state.fitnessPlan[wk];
     const today = todayKey();
     const defaultMuscle = plan.muscle === 'rest' ? '' : plan.name;
+    const val = (k, fb) => editing ? (editing[k] || '') : fb;
     openModal({
-      title: '💪 记录训练',
+      title: editing ? '✎ 编辑训练' : '💪 记录训练',
       body: `
         <div class="form-row">
           <label>训练部位</label>
-          <input class="pixel-input" id="trainMuscle" value="${escapeHtml(defaultMuscle)}" placeholder="例：胸 + 肩 + 二头" />
+          <input class="pixel-input" id="trainMuscle" value="${escapeHtml(val('muscle', defaultMuscle))}" placeholder="例：胸 + 肩 + 二头" />
         </div>
         <div class="form-row">
           <label>日期</label>
-          <input class="pixel-input" type="date" id="trainDate" value="${today}" />
+          <input class="pixel-input" type="date" id="trainDate" value="${editing ? editing.date : today}" />
         </div>
         <div class="form-row">
-          <label>动作 / 组数 / 次数 / 重量（自由记录）</label>
-          <textarea class="pixel-textarea" id="trainContent" placeholder="例：&#10;卧推 4×10 60kg&#10;上斜哑铃 3×12 25kg&#10;侧平举 4×15 8kg"></textarea>
+          <label>动作 / 组数 / 次数 / 重量（每行一个动作）</label>
+          <textarea class="pixel-textarea" id="trainContent" placeholder="例：&#10;卧推 4×10 60kg&#10;上斜哑铃 3×12 25kg">${escapeHtml(val('content', ''))}</textarea>
         </div>
         <div class="form-row">
           <div class="row-2">
             <div>
               <label>总重量（可选）</label>
-              <input class="pixel-input" id="trainWeight" placeholder="kg" />
+              <input class="pixel-input" id="trainWeight" placeholder="kg" value="${escapeHtml(val('weight', ''))}" />
             </div>
             <div>
               <label>总时长（可选）</label>
-              <input class="pixel-input" id="trainDuration" placeholder="分钟" />
+              <input class="pixel-input" id="trainDuration" placeholder="分钟" value="${escapeHtml(val('duration', ''))}" />
             </div>
           </div>
         </div>
         <div class="form-row">
           <label>备注</label>
-          <input class="pixel-input" id="trainNote" placeholder="今天状态、感觉……" />
+          <input class="pixel-input" id="trainNote" placeholder="今天状态、感觉……" value="${escapeHtml(val('note', ''))}" />
         </div>
       `,
       foot: `
         <button class="pixel-btn ghost" id="trainCancel">取消</button>
-        <button class="pixel-btn primary" id="trainSave">保存记录</button>
+        <button class="pixel-btn primary" id="trainSave">${editing ? '保存修改' : '保存记录'}</button>
       `
     });
     $('#trainCancel').addEventListener('click', closeModal);
@@ -1144,12 +1168,16 @@
       const duration = $('#trainDuration').value.trim();
       const note = $('#trainNote').value.trim();
       if (!content) { toast('请填写训练内容', 'error'); return; }
-      state.trainings.push({
-        id: uid(), muscle, date, content, weight, duration, note,
-        createdAt: Date.now(), updatedAt: Date.now()
-      });
+      if (editing) {
+        Object.assign(editing, { muscle, date, content, weight, duration, note, updatedAt: Date.now() });
+      } else {
+        state.trainings.push({
+          id: uid(), muscle, date, content, weight, duration, note,
+          createdAt: Date.now(), updatedAt: Date.now()
+        });
+      }
       save(); closeModal(); renderFitness();
-      toast('训练记录已保存 💪');
+      toast(editing ? '已更新训练记录 ✏️' : '训练记录已保存 💪');
     });
   }
 
@@ -1195,18 +1223,27 @@
     });
   }
 
-  $('#addTrainBtn').addEventListener('click', openTrainModal);
+  $('#addTrainBtn').addEventListener('click', () => openTrainModal());
   $('#openPlanBtn').addEventListener('click', openPlanModal);
+  $('#trainPrev').addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), -1); renderFitness(); });
+  $('#trainNext').addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), 1); renderFitness(); });
+  $('#trainToday').addEventListener('click', () => { fitnessSelDate = todayKey(); renderFitness(); });
 
   $('#trainList').addEventListener('click', (e) => {
-    if (e.target.dataset.act === 'del-train') {
-      const item = e.target.closest('.train-item');
+    const actBtn = e.target.closest('[data-act]');
+    if (!actBtn) return;
+    const item = e.target.closest('.train-item');
+    if (!item) return;
+    const act = actBtn.dataset.act;
+    if (act === 'del-train') {
       if (confirm('删除这条训练记录？')) {
         const tr = state.trainings.find(x => x.id === item.dataset.id);
         if (tr) { tr.deleted = true; tr.updatedAt = Date.now(); }
         save(); renderFitness();
         toast('已删除');
       }
+    } else if (act === 'edit-train') {
+      openTrainModal(item.dataset.id);
     }
   });
 

@@ -633,6 +633,12 @@ body {
 }
 .train-foot .del-btn { margin-left: auto; }
 .train-empty { text-align: center; padding: 30px 10px; color: var(--muted); }
+.day-nav { display: flex; gap: 6px; align-items: center; }
+.day-nav .pill { min-width: 32px; padding: 5px 10px; cursor: pointer; }
+.day-now { font-family: var(--font-pixel); font-size: 11px; }
+.day-label { font-family: var(--font-pixel); font-size: 12px; color: var(--border); margin: 6px 0 2px; }
+.day-summary { font-size: 13px; color: var(--text-soft); margin-bottom: 10px; }
+.train-foot .pill[data-act="edit-train"] { background: var(--puffer-cream); color: var(--border); cursor: pointer; }
 
 /* ============= 素材库 ============= */
 .category-grid {
