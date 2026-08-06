@@ -1006,12 +1006,14 @@
     $('#modalTitle').textContent = title;
     $('#modalBody').innerHTML = body;
     $('#modalFoot').innerHTML = foot || '';
+    $('#modal').classList.toggle('settings-modal', body.includes('settings-layout'));
     $('#modalMask').classList.add('show');
     if (onClose) $('#modalMask').dataset.closeHook = '1';
     else delete $('#modalMask').dataset.closeHook;
   }
   function closeModal() {
     $('#modalMask').classList.remove('show');
+    $('#modal').classList.remove('settings-modal');
     $('#modalBody').innerHTML = '';
     $('#modalFoot').innerHTML = '';
   }
@@ -1926,68 +1928,43 @@
     openModal({
       title: '🔄 同步与备份',
       body: `
-        <div class="form-row">
-          <label>两位成员称呼</label>
-          <div class="row-2">
-            <input class="pixel-input" id="partnerA" value="${escapeHtml((state.settings.partners || {}).a || '孙大炮')}" placeholder="成员 A 称呼" />
-            <input class="pixel-input" id="partnerB" value="${escapeHtml((state.settings.partners || {}).b || '童大侠')}" placeholder="成员 B 称呼" />
+        <div class="settings-layout">
+          <div class="settings-hero">
+            <div class="settings-hero-icon">⚙</div>
+            <div><strong>把你们的小窝设置好</strong><p>同步、成员信息和备份都集中在这里。</p></div>
           </div>
-          <div class="file-hint">显示在标题与问候中，两人均可修改并同步给对方</div>
-          <label style="margin-top:8px;">所在城市（天气显示用）</label>
-          <input class="pixel-input" id="cityInput" value="${escapeHtml(state.settings.city || '杭州')}" placeholder="如 杭州 / 上海 / 北京" />
-        </div>
-        <div class="form-row">
-          <p class="muted">在不同设备间同步你的工作台数据。最简单的方式：用 <strong>导出 / 导入</strong> 备份文件。</p>
-        </div>
-        <div class="form-row" style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="pixel-btn primary" id="syncExport">📥 导出 JSON 备份</button>
-          <button class="pixel-btn" id="syncImport">📤 导入 JSON 备份</button>
-        </div>
-        <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
-          <p class="muted">🔳 <strong>二维码同步</strong>：把数据生成二维码，手机扫码即可同步（适合数据量较小的场景）。</p>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-            <button class="pixel-btn" id="syncQR">生成同步二维码</button>
-            <button class="pixel-btn" id="syncFromQR">从二维码导入</button>
-          </div>
-        </div>
-        <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
-          <p class="muted">🤝 <strong>共享房间（两人协作）</strong>：两人填入同一个「房间 ID + 口令」，即可实时同步待办 / 健身 / 素材 / 推文 / AI 视频。删除也会同步，不会互相覆盖。</p>
-          <div class="file-hint">当前房间同步使用 <strong>Cloudflare Workers + KV</strong>；Supabase 仅作为备用后端。加入房间只连接已有房间；首次使用请点击“创建新房间”。</div>
-          <div class="row-2" style="margin-top:8px;">
-            <select id="roomBackend" class="pixel-input">
-              <option value="supabase" ${state.settings.room.backend === 'worker' ? '' : 'selected'}>Supabase（备用）</option>
-              <option value="worker" ${state.settings.room.backend === 'worker' ? 'selected' : ''}>Cloudflare Workers（当前）</option>
-            </select>
-            <input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || '')}" placeholder="${state.settings.room.backend === 'worker' ? '房间地址，如 https://puffer-share.xxx.workers.dev' : '项目 URL，如 https://xxxx.supabase.co'}" />
-          </div>
-          <input class="pixel-input" id="roomAnon" value="${escapeHtml(state.settings.room.anon || '')}" placeholder="Supabase Anon Key（公开密钥，可安全填入前端）" style="margin-top:8px;${state.settings.room.backend === 'worker' ? 'display:none' : ''}" />
-          <div class="row-2" style="margin-top:8px;">
-            <input class="pixel-input" id="roomId" value="${escapeHtml(state.settings.room.id || '')}" placeholder="房间 ID（两人一致）" />
-            <input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="访问口令" />
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-            <button class="pixel-btn primary" id="roomJoin">🤝 加入房间</button>
-            <button class="pixel-btn" id="roomCreate">创建新房间</button>
-            <button class="pixel-btn" id="roomSync">立即同步</button>
-            <button class="pixel-btn danger" id="roomLeave">退出</button>
-          </div>
-          <div id="roomStatus" class="file-hint" style="margin-top:8px;">尚未加入共享房间</div>
-        </div>
-        <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
-          <p class="muted">🌐 <strong>云端同步（可选）</strong>：配置一个简单的 JSON 存储 API（如 JSONBin、npoint、自建），输入 URL 即可。</p>
-          <input class="pixel-input" id="cloudUrl" value="${escapeHtml(state.settings.cloudUrl || '')}" placeholder="https://api.jsonbin.io/v3/b/xxxxx 或自建 API" style="margin-top:6px;" />
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-            <button class="pixel-btn primary" id="cloudSave">保存并测试</button>
-            <button class="pixel-btn ghost" id="cloudClear">清除</button>
-          </div>
-        </div>
-        <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
-          <p class="muted">⚠️ 危险操作</p>
-          <button class="pixel-btn danger" id="wipeAll" style="margin-top:6px;">清空所有数据</button>
-        </div>
-        <div id="qrArea" style="margin-top:16px;display:none;text-align:center;">
-          <div id="qrCanvas" style="display:inline-block;padding:10px;background:#fff;border:3px solid var(--border);box-shadow:4px 4px 0 var(--border);"></div>
-          <p class="muted" style="margin-top:8px;">手机扫码即可同步，或长按图片保存</p>
+          <section class="settings-card">
+            <div class="settings-card-head"><span class="settings-icon">💛</span><div><h4>你们的信息</h4><p>这些内容会显示在首页标题和问候里。</p></div></div>
+            <div class="settings-fields">
+              <div class="settings-field"><label for="partnerA">成员 A</label><input class="pixel-input" id="partnerA" value="${escapeHtml((state.settings.partners || {}).a || '孙大炮')}" placeholder="成员 A 称呼" /></div>
+              <div class="settings-field"><label for="partnerB">成员 B</label><input class="pixel-input" id="partnerB" value="${escapeHtml((state.settings.partners || {}).b || '童大侠')}" placeholder="成员 B 称呼" /></div>
+            </div>
+            <div class="settings-field settings-field-wide"><label for="cityInput">所在城市</label><input class="pixel-input" id="cityInput" value="${escapeHtml(state.settings.city || '杭州')}" placeholder="如 杭州 / 上海 / 北京" /><span class="settings-hint">用于获取天气和生成音乐推荐。</span></div>
+          </section>
+          <section class="settings-card settings-card-featured">
+            <div class="settings-card-head"><span class="settings-icon">🤝</span><div><h4>共享房间</h4><p>两台设备使用同一个房间 ID 和口令，数据会自动同步。</p></div></div>
+            <div class="settings-note">当前默认使用 <strong>Cloudflare Workers + KV</strong>。已有房间请直接加入，不要重复创建。</div>
+            <div class="settings-fields settings-fields-wide">
+              <div class="settings-field"><label for="roomBackend">同步后端</label><select id="roomBackend" class="pixel-input"><option value="supabase" ${state.settings.room.backend === 'worker' ? '' : 'selected'}>Supabase（备用）</option><option value="worker" ${state.settings.room.backend === 'worker' ? 'selected' : ''}>Cloudflare Workers（当前）</option></select></div>
+              <div class="settings-field"><label for="roomUrl">房间地址</label><input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || '')}" placeholder="Worker 或 Supabase 项目地址" /></div>
+              <div class="settings-field settings-field-wide"><label for="roomAnon">Supabase Anon Key <span>（备用后端才需要）</span></label><input class="pixel-input" id="roomAnon" value="${escapeHtml(state.settings.room.anon || '')}" placeholder="公开密钥，可安全填入前端" style="${state.settings.room.backend === 'worker' ? 'display:none' : ''}" /></div>
+              <div class="settings-field"><label for="roomId">房间 ID</label><input class="pixel-input" id="roomId" value="${escapeHtml(state.settings.room.id || '')}" placeholder="两人保持一致" /></div>
+              <div class="settings-field"><label for="roomPass">访问口令</label><input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="房间口令" /></div>
+            </div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">🤝 加入房间</button><button class="pixel-btn" id="roomCreate">创建新房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn danger" id="roomLeave">退出</button></div>
+            <div id="roomStatus" class="settings-status">尚未加入共享房间</div>
+          </section>
+          <section class="settings-card">
+            <div class="settings-card-head"><span class="settings-icon">🗂</span><div><h4>备份与迁移</h4><p>换设备、扫码或手动备份时使用。</p></div></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="syncExport">📥 导出 JSON</button><button class="pixel-btn" id="syncImport">📤 导入 JSON</button><button class="pixel-btn" id="syncQR">生成二维码</button><button class="pixel-btn" id="syncFromQR">扫码导入</button></div>
+            <div id="qrArea" class="settings-qr"><div id="qrCanvas"></div><p>手机扫码即可同步，或长按图片保存。</p></div>
+          </section>
+          <section class="settings-card settings-card-muted">
+            <div class="settings-card-head"><span class="settings-icon">☁</span><div><h4>其他云端 API <span class="settings-optional">可选</span></h4><p>仅在你有其他 JSON 存储服务时使用。</p></div></div>
+            <div class="settings-field settings-field-wide"><label for="cloudUrl">API 地址</label><input class="pixel-input" id="cloudUrl" value="${escapeHtml(state.settings.cloudUrl || '')}" placeholder="JSONBin、npoint 或自建 API 地址" /></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="cloudSave">保存并测试</button><button class="pixel-btn ghost" id="cloudClear">清除</button></div>
+          </section>
+          <section class="settings-danger"><div><strong>危险操作</strong><p>清空所有本地数据，且无法恢复。</p></div><button class="pixel-btn danger" id="wipeAll">清空所有数据</button></section>
         </div>
       `,
       foot: `<button class="pixel-btn ghost" id="syncClose">关闭</button>`
