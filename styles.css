@@ -1500,3 +1500,29 @@ body {
 .fortune-col.ta-col { background: #FDF3F6; border-color: #F2D5DE; }
 .fortune-title { font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink-soft); margin-bottom: 2px; }
 @media (max-width: 480px) { .fortune-grid { grid-template-columns: 1fr; } }
+
+/* 今日音乐悬浮窗 */
+.music-float { position: fixed; right: 22px; bottom: 22px; z-index: 30; width: min(360px, calc(100vw - 28px)); font-family: var(--font-body); }
+.music-float-toggle { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid rgba(255,255,255,.72); border-radius: 18px; color: var(--ink); background: rgba(255,250,245,.92); box-shadow: 0 12px 30px rgba(81,54,45,.16); cursor: pointer; text-align: left; backdrop-filter: blur(14px); }
+.music-float-toggle b { display: block; font-family: var(--font-head); font-size: 14px; }
+.music-float-toggle small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.music-float-note { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(135deg,#D98B7B,#B85D70); font-size: 20px; }
+.music-float-chevron { margin-left: auto; color: var(--muted); transition: transform .2s ease; }
+.music-float-toggle[aria-expanded="true"] .music-float-chevron { transform: rotate(180deg); }
+.music-float-panel { margin-top: 8px; padding: 15px; border: 1px solid rgba(255,255,255,.76); border-radius: 20px; background: rgba(255,250,245,.96); box-shadow: 0 18px 44px rgba(81,54,45,.2); backdrop-filter: blur(18px); }
+.music-float-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.music-kicker { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.music-float-head h3 { margin: 4px 0 0; font-family: var(--font-head); font-size: 18px; }
+.music-weather-chip { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; color: #865348; background: #FFF0EA; font-size: 11px; }
+.music-dayparts { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin: 14px 0 10px; }
+.music-daypart { padding: 7px 4px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
+.music-daypart.active { border-color: #D98B7B; color: #9E4F58; background: #FFF0EA; font-weight: 700; }
+.music-list { display: grid; gap: 7px; }
+.music-track { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 12px; background: var(--cream); }
+.music-track-no { color: #B85D70; font-size: 12px; font-weight: 700; }
+.music-track-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
+.music-track-artist { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.music-track a { color: #9E4F58; font-size: 16px; text-decoration: none; }
+.music-float-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.music-float-foot a { flex: 0 0 auto; color: #9E4F58; text-decoration: none; font-weight: 700; }
+@media (max-width: 640px) { .music-float { right: 12px; bottom: 78px; } .music-float-panel { max-height: 70vh; overflow: auto; } }

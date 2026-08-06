@@ -56,6 +56,41 @@
 
   const GALLERY_MAX = 5;
 
+  const APPLE_PLAYLIST_URL = 'https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6';
+  const musicLink = (id) => id ? 'https://music.apple.com/cn/song/' + id : APPLE_PLAYLIST_URL;
+  const MUSIC_LIBRARY = [
+    { title:'简单爱', artist:'周杰伦', id:'535739351', tags:['morning','noon','sun','clear','happy','weekend','friday'] },
+    { title:'特别的人', artist:'方大同', id:'1579903651', tags:['morning','noon','cloud','soft','warm','workweek'] },
+    { title:'爱在西元前', artist:'周杰伦', id:'1787517382', tags:['morning','sun','clear','happy','workweek'] },
+    { title:'红豆', artist:'方大同', id:'', tags:['morning','noon','cloud','soft','slow','weekend'] },
+    { title:'三人游', artist:'方大同', id:'', tags:['noon','cloud','soft','slow','weekend'] },
+    { title:'水星记', artist:'郭顶', id:'1443638095', tags:['night','rain','cloud','soft','tired','slow'] },
+    { title:'保留', artist:'郭顶', id:'1443638411', tags:['night','rain','cloud','soft','tired','workweek'] },
+    { title:'轨迹', artist:'周杰伦', id:'536108122', tags:['night','rain','tired','slow','workweek'] },
+    { title:'Letting Go', artist:'蔡健雅', id:'672994663', tags:['night','rain','tired','slow','cloud'] },
+    { title:'心的距离', artist:'陈奕迅', id:'1539122249', tags:['night','rain','tired','slow'] },
+    { title:'是但求其爱', artist:'陈奕迅', id:'1539122249', tags:['night','rain','cloud','soft','slow'] },
+    { title:'i love you', artist:'Billie Eilish', id:'', tags:['night','rain','tired','soft','slow'] },
+    { title:'夏日漱石', artist:'橘子海', id:'1460348282', tags:['morning','noon','sun','clear','weekend','happy'] },
+    { title:'船', artist:'旅行团乐队', id:'1808643222', tags:['noon','sun','cloud','weekend','slow'] },
+    { title:'芳草地', artist:'陈粒', id:'1421693327', tags:['morning','noon','cloud','soft','weekend'] },
+    { title:'旅行中忘记', artist:'袁娅维', id:'942536325', tags:['noon','sun','clear','weekend','happy'] },
+    { title:'一点点', artist:'周杰伦', id:'1118757870', tags:['noon','friday','sun','clear','happy'] },
+    { title:'美人鱼', artist:'周杰伦', id:'', tags:['noon','friday','sun','clear','happy'] },
+    { title:'浪漫手机', artist:'周杰伦', id:'', tags:['morning','friday','sun','happy','warm'] },
+    { title:'Calm Down', artist:'Rema & Selena Gomez', id:'', tags:['noon','friday','sun','clear','happy'] },
+    { title:'Show Me Love', artist:'WizTheMc & bees & honey', id:'', tags:['morning','friday','sun','happy'] },
+    { title:'EYES, NOSE, LIPS', artist:'SOL (from BIGBANG)', id:'', tags:['night','friday','cloud','soft','warm'] },
+    { title:'City of Stars', artist:'Ryan Gosling & 艾玛·斯通', id:'', tags:['night','cloud','soft','weekend','slow'] },
+    { title:'Dear April (Side A - Acoustic)', artist:'Frank Ocean', id:'', tags:['night','rain','cloud','soft','slow'] },
+    { title:'HEARTBREAK ANNIVERSARY', artist:'GIVĒON', id:'', tags:['night','rain','tired','slow'] },
+    { title:'Melody', artist:'陶喆', id:'', tags:['morning','noon','cloud','soft','warm'] },
+    { title:'流沙', artist:'陶喆', id:'', tags:['night','rain','soft','slow'] },
+    { title:'乌云中', artist:'艾热AIR', id:'', tags:['night','rain','cloud','tired'] },
+    { title:'同类', artist:'孙燕姿', id:'535739349', tags:['night','rain','tired','slow'] },
+    { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] }
+  ].map(song => ({ ...song, url: musicLink(song.id) }));
+
   // ==========================================
   // 1. 状态与数据
   // ==========================================
@@ -327,7 +362,7 @@
   async function fetchWeather(force) {
     const city = (state.settings.city && CITY_COORDS[state.settings.city]) ? state.settings.city : '杭州';
     const cached = state._weather;
-    if (!force && cached && (Date.now() - (cached.ts || 0) < 3600 * 1000)) { renderWeather(); return; }
+    if (!force && cached && (Date.now() - (cached.ts || 0) < 3600 * 1000)) { renderWeather(); renderMusicWidget(); return; }
     try {
       const c = CITY_COORDS[city] || CITY_COORDS['杭州'];
       const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + c.lat + '&longitude=' + c.lon + '&current=temperature_2m,weather_code&timezone=Asia%2FShanghai';
@@ -338,6 +373,7 @@
       state._weather = { ts: Date.now(), city: city, temp: Math.round(cur.temperature_2m), code: cur.weather_code, time: cur.time };
       save({ silent: true }); // 天气是本地缓存，不值得推送给对方（否则会形成推送循环）
       renderWeather();
+      renderMusicWidget();
     } catch (e) {
       const el = $('#weatherBody');
       if (el) el.innerHTML = '<div class="muted">天气获取失败：' + escapeHtml(e.message) + '</div>';
@@ -364,6 +400,43 @@
   // ==========================================
   // 5.2 纪念日倒计时（从 2023-12-04 起）
   // ==========================================
+  const MUSIC_DAYPARTS = {
+    morning: { label: '早晨', title: '给今天开个场' },
+    noon: { label: '午间', title: '午后的轻松三首' },
+    night: { label: '夜晚', title: '把今天慢慢收好' }
+  };
+  const musicHash = (text) => { let h = 2166136261; for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  function currentMusicDaypart() { const hour = new Date().getHours(); return hour < 11 ? 'morning' : (hour < 18 ? 'noon' : 'night'); }
+  function musicWeatherProfile() {
+    const code = state._weather && state._weather.code;
+    if ([51,53,55,61,63,65,80,81,82,95,96,99].includes(code)) return { label: '雨天', icon: '☂', tags: ['rain','soft','tired'], reason: '雨声适合把节奏放慢' };
+    if ([71,73,75,85,86].includes(code)) return { label: '雪天', icon: '❄', tags: ['cloud','soft','slow'], reason: '冷空气里留一点温柔' };
+    if (code === 0 || code === 1) return { label: '晴天', icon: '☀', tags: ['sun','clear','happy'], reason: '阳光给今天加一点能量' };
+    return { label: '多云', icon: '☁', tags: ['cloud','soft','warm'], reason: '不急不慢，留一点呼吸感' };
+  }
+  function musicWeekProfile() {
+    const day = new Date().getDay();
+    if (day === 1) return { label: '低电量周一', tags: ['tired','slow'] };
+    if (day === 5) return { label: '放假前的开心', tags: ['friday','happy'] };
+    if (day === 0 || day === 6) return { label: '周末悠闲', tags: ['weekend','slow'] };
+    return { label: '工作日慢慢进入状态', tags: ['workweek','warm'] };
+  }
+  function pickMusicFor(part) {
+    const weather = musicWeatherProfile(); const week = musicWeekProfile();
+    const wanted = new Set([part, ...weather.tags, ...week.tags]);
+    const seed = todayKey() + part + String(state._weather && state._weather.code);
+    return MUSIC_LIBRARY.map((song, index) => { let score = 0; song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; }); score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score).slice(0, 3).map(item => item.song);
+  }
+  function renderMusicWidget(activePart) {
+    const list = $('#musicList'); const tabs = $('#musicDayparts'); if (!list || !tabs) return;
+    const part = activePart || currentMusicDaypart(); const weather = musicWeatherProfile(); const week = musicWeekProfile(); const info = MUSIC_DAYPARTS[part];
+    const chip = $('#musicWeatherChip'); const title = $('#musicWidgetTitle'); const hint = $('#musicFloatHint'); const reason = $('#musicReason');
+    if (chip) chip.textContent = weather.icon + ' ' + weather.label; if (title) title.textContent = info.label + ' · ' + info.title; if (hint) hint.textContent = weather.label + ' · ' + week.label; if (reason) reason.textContent = week.label + ' · ' + weather.reason;
+    tabs.innerHTML = Object.keys(MUSIC_DAYPARTS).map(key => '<button class="music-daypart' + (key === part ? ' active' : '') + '" type="button" data-music-part="' + key + '" role="tab" aria-selected="' + (key === part) + '">' + MUSIC_DAYPARTS[key].label + '</button>').join('');
+    list.innerHTML = pickMusicFor(part).map((song, index) => '<article class="music-track"><span class="music-track-no">0' + (index + 1) + '</span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>').join('');
+    if (!tabs.dataset.bound) { tabs.dataset.bound = '1'; tabs.addEventListener('click', e => { const btn = e.target.closest('[data-music-part]'); if (btn) renderMusicWidget(btn.dataset.musicPart); }); }
+  }
+
   function renderAnniversary() {
     const el = $('#anniBody');
     if (!el) return;
@@ -2473,6 +2546,15 @@
   // 启动
   // ==========================================
   load();
+  const musicToggle = $('#musicFloatToggle');
+  const musicPanel = $('#musicFloatPanel');
+  if (musicToggle && musicPanel) musicToggle.addEventListener('click', () => {
+    const open = musicToggle.getAttribute('aria-expanded') === 'true';
+    musicToggle.setAttribute('aria-expanded', String(!open));
+    musicPanel.hidden = open;
+    if (!open) renderMusicWidget();
+  });
+  renderMusicWidget();
   if (!state.settings.partners) state.settings.partners = { a: (state.settings.ownerName || '孙大炮'), b: '童大侠', updatedAt: 0 };
   if (!state.settings.me) state.settings.me = 'a';
   if (!state.settings.city) state.settings.city = '杭州';

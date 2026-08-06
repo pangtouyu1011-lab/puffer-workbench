@@ -560,6 +560,23 @@
     </button>
   </nav>
 
+  <aside class="music-float" id="musicFloat">
+    <button class="music-float-toggle" id="musicFloatToggle" type="button" aria-expanded="false" aria-controls="musicFloatPanel">
+      <span class="music-float-note">♫</span>
+      <span><b>今日歌单</b><small id="musicFloatHint">按天气挑三首</small></span>
+      <span class="music-float-chevron">⌃</span>
+    </button>
+    <div class="music-float-panel" id="musicFloatPanel" hidden>
+      <div class="music-float-head">
+        <div><span class="music-kicker">你们的歌单 × 今天</span><h3 id="musicWidgetTitle">今日三首推荐</h3></div>
+        <span class="music-weather-chip" id="musicWeatherChip">加载天气中</span>
+      </div>
+      <div class="music-dayparts" id="musicDayparts" role="tablist"></div>
+      <div class="music-list" id="musicList"></div>
+      <div class="music-float-foot"><span id="musicReason">正在读取今天的天气与心情</span><a href="https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6" target="_blank" rel="noopener">打开歌单 ↗</a></div>
+    </div>
+  </aside>
+
   <!-- 模态框：通用 -->
   <div class="modal-mask" id="modalMask">
     <div class="modal pixel-border" id="modal">
@@ -577,6 +594,6 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=ee5ccd2-sync-fix-2"></script>
+  <script src="app.js?v=music-widget-1"></script>
 </body>
 </html>
