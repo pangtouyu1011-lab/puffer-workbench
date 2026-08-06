@@ -93,6 +93,12 @@
     { title:'同类', artist:'孙燕姿', id:'535739349', tags:['night','rain','tired','slow'] },
     { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] }
   ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
+    { title:'雨瘾', artist:'网易云歌单情绪样本', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'神选', artist:'网易云歌单情绪样本', tags:['night','cloud','rap','experimental','emotional'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'蜈蚣', artist:'网易云歌单情绪样本', tags:['night','rap','indie','experimental'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'我和我的现金', artist:'网易云歌单情绪样本', tags:['noon','friday','rap','happy'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'焦虑Pt.2/膨胀', artist:'网易云歌单情绪样本', tags:['night','rain','rap','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'朦胧', artist:'网易云歌单情绪样本', tags:['night','cloud','indie','soft','emotional'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
     { title:'Pink + White', artist:'Frank Ocean', tags:['morning','sun','soft','warm','indie'], source:'相似推荐', url:musicSearch('Frank Ocean Pink White') },
     { title:'Best Part', artist:'Daniel Caesar feat. H.E.R.', tags:['morning','noon','cloud','warm','slow'], source:'相似推荐', url:musicSearch('Daniel Caesar Best Part') },
     { title:'可惜没如果', artist:'林俊杰', tags:['night','rain','tired','emotional'], source:'相似推荐', url:musicSearch('林俊杰 可惜没如果') },
