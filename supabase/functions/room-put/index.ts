@@ -46,6 +46,14 @@ async function pbkdf2(pass: string, salt: Uint8Array, iter: number): Promise<str
   return btoa(String.fromCharCode(...new Uint8Array(bits)));
 }
 
+async function dataDigest(data: unknown): Promise<{ hash: string; bytes: number }> {
+  const raw = JSON.stringify(data);
+  const bytes = new TextEncoder().encode(raw);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return { hash, bytes: bytes.byteLength };
+}
+
 function genSalt(bytes = 16): Uint8Array {
   const a = new Uint8Array(bytes);
   crypto.getRandomValues(a);
@@ -117,9 +125,18 @@ Deno.serve(async (req) => {
   const id = String(body.id || '').trim();
   const pass = String(body.pass || '');
   const data = body.data;
+  const expectedDataHash = String(body.dataHash || '');
   const prevRev = body.rev;
   if (!id || !pass || data === undefined || id.length > 64 || pass.length > 128) {
     return new Response(JSON.stringify({ error: 'bad_input' }), {
+      status: 400,
+      headers: { ...CORS, 'content-type': 'application/json' },
+    });
+  }
+
+  const incomingDigest = await dataDigest(data);
+  if (expectedDataHash && expectedDataHash !== incomingDigest.hash) {
+    return new Response(JSON.stringify({ error: 'data_hash_mismatch' }), {
       status: 400,
       headers: { ...CORS, 'content-type': 'application/json' },
     });
@@ -185,7 +202,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  return new Response(JSON.stringify({ ok: true, rev: newRev }), {
+  return new Response(JSON.stringify({
+    ok: true,
+    rev: newRev,
+    dataHash: incomingDigest.hash,
+    bytes: incomingDigest.bytes,
+  }), {
     headers: { ...CORS, 'content-type': 'application/json' },
   });
 });

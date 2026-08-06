@@ -2105,9 +2105,10 @@
   // 移动网络偶发 DNS / IPv6 / TLS 路由卡住时，原生 fetch 可能长时间保持 pending。
   // 给同步请求设置明确的截止时间，确保 finally 能执行并把失败状态反馈给用户。
   const SYNC_REQUEST_TIMEOUT_MS = 20000;
-  async function syncFetch(input, init) {
+  const SYNC_UPLOAD_TIMEOUT_MS = 60000;
+  async function syncFetch(input, init, timeoutMs = SYNC_REQUEST_TIMEOUT_MS) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(input, Object.assign({}, init || {}, { signal: controller.signal }));
     } catch (e) {
@@ -2118,6 +2119,13 @@
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async function snapshotHash(data) {
+    const raw = JSON.stringify(data);
+    const bytes = new TextEncoder().encode(raw);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   async function roomGet(url, id, pass) {
@@ -2154,7 +2162,7 @@
     return res.json();
   }
 
-  async function roomPut(url, id, pass, data) {
+  async function roomPut(url, id, pass, data, dataHash) {
     const r = state.settings.room;
     if (r.backend === 'supabase') {
       // 走 Edge Function：服务端写 pass 哈希，客户端不再持有明文存储
@@ -2166,14 +2174,16 @@
           'apikey': r.anon,
           'Authorization': 'Bearer ' + r.anon,
         },
-        body: JSON.stringify({ id, pass, data, rev: r.lastRev })
-      });
+        body: JSON.stringify({ id, pass, data, dataHash, rev: r.lastRev })
+      }, SYNC_UPLOAD_TIMEOUT_MS);
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.error === 'forbidden') throw new Error('口令错误');
         if (body.error === 'conflict') throw new Error('版本冲突（请稍后重试）');
+        if (body.error === 'data_hash_mismatch') throw new Error('上传内容校验失败，请重试');
         throw new Error('HTTP ' + res.status);
       }
+      if (body.dataHash && body.dataHash !== dataHash) throw new Error('服务器确认内容摘要不一致');
       return { ok: true, rev: body.rev, updatedAt: Date.now() };
     }
     // Cloudflare Workers 后端
@@ -2193,14 +2203,14 @@
   function scheduleRoomPush() {
     if (!roomActive()) return;
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(pushToRoom, 1000);
+    pushTimer = setTimeout(() => { pushToRoom(); }, 1000);
   }
 
-  // 同步失败自动重试（退避），最多 3 次；同时把错误留在 pill 上供一键重试
+  // 同步失败自动重试（指数退避），同时把错误留在 pill 上供一键重试
   let syncFailed = false;
   let syncRetryCount = 0;
   let syncRetryTimer = null;
-  const MAX_SYNC_RETRY = 3;
+  const MAX_SYNC_RETRY = 6;
   // 版本冲突自动重试：重新拉取→合并→再写，最多 2 次（化解双端竞态）
   let conflictRetryCount = 0;
   const MAX_CONFLICT_RETRY = 2;
@@ -2208,13 +2218,13 @@
     if (!roomActive()) return;
     if (syncRetryCount >= MAX_SYNC_RETRY) return;
     syncRetryCount++;
-    const delay = syncRetryCount * 20000; // 20s / 40s / 60s
+    const delay = Math.min(120000, 5000 * (2 ** (syncRetryCount - 1))); // 5s / 10s / 20s / 40s / 80s / 120s
     clearTimeout(syncRetryTimer);
     syncRetryTimer = setTimeout(() => { pushToRoom(); }, delay);
   }
 
   // 返回 true 表示成功，false 表示失败（内部已 toast）
-  async function pushToRoom(options = {}) {
+  async function pushToRoomOnce(options = {}) {
     if (!roomActive()) return false;
     const r = state.settings.room;
     const allowCreate = !!options.allowCreate;
@@ -2237,7 +2247,9 @@
         }
       }
       try {
-        const resp = await roomPut(r.url, r.id, r.pass, serializeRoom());
+        const snapshot = serializeRoom();
+        const dataHash = await snapshotHash(snapshot);
+        const resp = await roomPut(r.url, r.id, r.pass, snapshot, dataHash);
         r.lastRev = resp.rev;
         r.lastSync = Date.now();
         r.lastError = '';
@@ -2253,7 +2265,7 @@
           // 对方也在写：快照过期。重新拉取-合并-再写，自动化解竞态
           conflictRetryCount++;
           await new Promise(r => setTimeout(r, 400));
-          return pushToRoom(options);
+          return pushToRoomOnce(options);
         }
         conflictRetryCount = 0;
         r.lastError = e.message || '未知错误';
@@ -2296,6 +2308,40 @@
       r.lastError = message;
       updateRoomStatus();
       if (changed) toast('自动同步失败：' + message, 'error');
+      scheduleSyncRetry();
+    }
+  }
+
+  let pushInFlight = null;
+  let pushQueued = false;
+  let pushQueuedAllowCreate = false;
+
+  // 所有写入共用一个队列：手动同步、自动保存、轮询不会并发覆盖彼此。
+  async function pushToRoom(options = {}) {
+    if (!roomActive()) return false;
+    if (pushInFlight) {
+      pushQueued = true;
+      pushQueuedAllowCreate = pushQueuedAllowCreate || !!options.allowCreate;
+      return pushInFlight;
+    }
+    const run = (async () => {
+      let ok = await pushToRoomOnce(options);
+      while (pushQueued && roomActive()) {
+        const next = { allowCreate: pushQueuedAllowCreate };
+        pushQueued = false;
+        pushQueuedAllowCreate = false;
+        ok = await pushToRoomOnce(next);
+      }
+      return ok;
+    })();
+    pushInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (pushInFlight === run) {
+        pushInFlight = null;
+        if (pushQueued && roomActive()) scheduleRoomPush();
+      }
     }
   }
 
@@ -2427,9 +2473,13 @@
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       pollRoom();
+      if (roomActive()) pushToRoom();
       updateMsgBadge();
       updateTitleBadge();
     }
+  });
+  window.addEventListener('online', () => {
+    if (roomActive()) pushToRoom();
   });
   updateMsgBadge();
   updateMsgNotifyBtn();
