@@ -1802,7 +1802,7 @@
         </div>
         <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
           <p class="muted">🤝 <strong>共享房间（两人协作）</strong>：两人填入同一个「房间 ID + 口令」，即可实时同步待办 / 健身 / 素材 / 推文 / AI 视频。删除也会同步，不会互相覆盖。</p>
-          <div class="file-hint">后端支持 <strong>Supabase</strong>（推荐，国内可访问，免费）或 Cloudflare Workers（workers.dev 在大陆常被墙，需自备域名）。</div>
+          <div class="file-hint">后端支持 <strong>Supabase</strong>（推荐，国内可访问，免费）或 Cloudflare Workers（workers.dev 在大陆常被墙，需自备域名）。加入房间只连接已有房间；首次使用请点击“创建新房间”。</div>
           <div class="row-2" style="margin-top:8px;">
             <select id="roomBackend" class="pixel-input">
               <option value="supabase" ${state.settings.room.backend !== 'worker' ? 'selected' : ''}>Supabase（推荐）</option>
@@ -1817,6 +1817,7 @@
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
             <button class="pixel-btn primary" id="roomJoin">🤝 加入房间</button>
+            <button class="pixel-btn" id="roomCreate">创建新房间</button>
             <button class="pixel-btn" id="roomSync">立即同步</button>
             <button class="pixel-btn danger" id="roomLeave">退出</button>
           </div>
@@ -1880,7 +1881,8 @@
     $('#roomId').addEventListener('input', (e) => { state.settings.room.id = e.target.value.trim(); save(); });
     $('#roomPass').addEventListener('input', (e) => { state.settings.room.pass = e.target.value.trim(); save(); });
     $('#roomJoin').addEventListener('click', joinRoom);
-    $('#roomSync').addEventListener('click', () => { pushToRoom(); updateRoomStatus(); });
+    $('#roomCreate').addEventListener('click', createRoom);
+    $('#roomSync').addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
     $('#roomLeave').addEventListener('click', leaveRoom);
     $('#wipeAll').addEventListener('click', () => {
       if (confirm('真的要清空所有数据吗？此操作不可恢复！')) {
@@ -2100,12 +2102,30 @@
     };
   }
 
+  // 移动网络偶发 DNS / IPv6 / TLS 路由卡住时，原生 fetch 可能长时间保持 pending。
+  // 给同步请求设置明确的截止时间，确保 finally 能执行并把失败状态反馈给用户。
+  const SYNC_REQUEST_TIMEOUT_MS = 20000;
+  async function syncFetch(input, init) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(input, Object.assign({}, init || {}, { signal: controller.signal }));
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        throw new Error('同步超时，请检查当前网络后重试');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function roomGet(url, id, pass) {
     const r = state.settings.room;
     if (r.backend === 'supabase') {
       // 走 Edge Function：anon 永远拿不到表 / pass 明文
       const base = url.replace(/\/$/, '');
-      const res = await fetch(`${base}/functions/v1/room-get`, {
+      const res = await syncFetch(`${base}/functions/v1/room-get`, {
         method: 'POST',
         headers: {
           'apikey': r.anon,
@@ -2124,7 +2144,7 @@
       return { ok: true, data: body.data, rev: body.rev, updatedAt: body.updatedAt };
     }
     // Cloudflare Workers 后端
-    const res = await fetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
+    const res = await syncFetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
@@ -2139,7 +2159,7 @@
     if (r.backend === 'supabase') {
       // 走 Edge Function：服务端写 pass 哈希，客户端不再持有明文存储
       const base = url.replace(/\/$/, '');
-      const res = await fetch(`${base}/functions/v1/room-put`, {
+      const res = await syncFetch(`${base}/functions/v1/room-put`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2157,7 +2177,7 @@
       return { ok: true, rev: body.rev, updatedAt: Date.now() };
     }
     // Cloudflare Workers 后端
-    const res = await fetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}`, {
+    const res = await syncFetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pass, data })
@@ -2194,9 +2214,10 @@
   }
 
   // 返回 true 表示成功，false 表示失败（内部已 toast）
-  async function pushToRoom() {
+  async function pushToRoom(options = {}) {
     if (!roomActive()) return false;
     const r = state.settings.room;
+    const allowCreate = !!options.allowCreate;
     setSyncPillBusy(true);
     try {
       try {
@@ -2206,15 +2227,24 @@
         r.lastRev = remote.rev;
         checkNewMessages(prevIds); // 打开/同步时立即发现对方新留言
       } catch (e) {
-        if (e.message !== '房间不存在') { toast('同步失败：' + e.message, 'error'); syncFailed = true; scheduleSyncRetry(); return false; }
+        if (e.message !== '房间不存在' || !allowCreate) {
+          r.lastError = e.message || '未知错误';
+          updateRoomStatus();
+          toast('同步失败：' + e.message, 'error');
+          syncFailed = true;
+          scheduleSyncRetry();
+          return false;
+        }
       }
       try {
         const resp = await roomPut(r.url, r.id, r.pass, serializeRoom());
         r.lastRev = resp.rev;
         r.lastSync = Date.now();
+        r.lastError = '';
         syncFailed = false; syncRetryCount = 0; clearTimeout(syncRetryTimer);
         conflictRetryCount = 0;
         save({ silent: true });
+        updateRoomStatus();
         renderCurrent();
         return true;
       } catch (e) {
@@ -2223,9 +2253,10 @@
           // 对方也在写：快照过期。重新拉取-合并-再写，自动化解竞态
           conflictRetryCount++;
           await new Promise(r => setTimeout(r, 400));
-          return pushToRoom();
+          return pushToRoom(options);
         }
         conflictRetryCount = 0;
+        r.lastError = e.message || '未知错误';
         toast('同步失败：' + e.message, 'error');
         syncFailed = true; scheduleSyncRetry();
         return false;
@@ -2258,7 +2289,14 @@
       checkNewMessages(prevIds);
       renderCurrent();
       toast('已收到对方的更新 ✨');
-    } catch (e) { /* 轮询静默失败 */ }
+    } catch (e) {
+      syncFailed = true;
+      const message = e && e.message ? e.message : '网络或服务器错误';
+      const changed = r.lastError !== message;
+      r.lastError = message;
+      updateRoomStatus();
+      if (changed) toast('自动同步失败：' + message, 'error');
+    }
   }
 
   function renderCurrent() {
@@ -2287,6 +2325,27 @@
     } else {
       r.joined = false; save();
       updateSyncPill();
+      updateRoomStatus();
+    }
+  }
+
+  async function createRoom() {
+    const r = state.settings.room;
+    if (r.backend === 'supabase' && (!r.url || !r.anon || !r.id || !r.pass)) { toast('请填写 Supabase 项目 URL、Anon Key、房间 ID 和口令', 'error'); return; }
+    if (r.backend !== 'supabase' && (!r.url || !r.id || !r.pass)) { toast('请填写房间地址、ID 和口令', 'error'); return; }
+    if (!confirm('这个操作会在当前后端创建一个新房间，并上传本机当前数据。确定继续吗？')) return;
+    r.joined = true; save();
+    const ok = await pushToRoom({ allowCreate: true });
+    if (ok) {
+      startRoomPolling();
+      updateSyncPill();
+      updateRoomStatus();
+      toast('新房间已创建 🤝');
+      closeModal();
+    } else {
+      r.joined = false; save();
+      updateSyncPill();
+      updateRoomStatus();
     }
   }
 
@@ -2312,7 +2371,9 @@
     if (!el) return;
     const r = state.settings.room;
     if (r.joined) {
-      el.innerHTML = `已加入房间「<strong>${escapeHtml(r.id)}</strong>」· 最近同步 ${fmtAgo(r.lastSync)} · 每 12 秒自动拉取对方更新`;
+      const backend = r.backend === 'supabase' ? 'Supabase' : 'Worker';
+      const error = r.lastError ? `<br><span style="color:var(--danger)">同步错误：${escapeHtml(r.lastError)}</span>` : '';
+      el.innerHTML = `已加入房间「<strong>${escapeHtml(r.id)}</strong>」· ${backend} · 最近同步 ${fmtAgo(r.lastSync)} · 每 12 秒自动拉取对方更新${error}`;
     } else {
       el.textContent = '尚未加入共享房间';
     }
