@@ -171,6 +171,7 @@
     meals: defaultMeals(),
     wishes: [],
     water: {},
+    fortune: null,          // 两人各自的祈福签：{ date, by: { a, b } }
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
       me: 'a',
@@ -208,6 +209,12 @@
       if (!state.meals) state.meals = defaultMeals();
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
+      // 迁移旧版共享抽签（settings.fortune 单一签）→ 顶层双人结构（旧签归 a）
+      if (state.settings && state.settings.fortune && state.settings.fortune.date && state.settings.fortune.sign) {
+        state.fortune = { date: state.settings.fortune.date, by: { a: state.settings.fortune.sign, b: null } };
+        delete state.settings.fortune;
+      }
+      if (!state.fortune) state.fortune = null;
       if (state.settings.lastClean === undefined) state.settings.lastClean = 0;
         if (!state.settings.room) state.settings.room = { backend: 'supabase', url: 'https://chfczfrkgndgudcxoump.supabase.co', anon: 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
         else {
@@ -252,7 +259,6 @@
     fitness: '练完记得拉伸，好好休息 🌿',
     messages: 'TA 的心里话都藏在这里 💌',
     wishes: '心愿不怕多，慢慢都会实现 🛎️',
-    meal: '今天想好吃什么了吗？🍜',
     horoscope: '看看今天的星座运势，抽一支签吧 ✨',
   };
   function pageMascotQuote(name) {
@@ -292,7 +298,6 @@
       case 'fitness': renderFitness(); break;
       case 'messages': renderMessages(); break;
       case 'wishes': renderWishes(); break;
-      case 'meal': renderMeal(); break;
       case 'horoscope': renderHoroscope(); renderFortune(); break;
     }
   }
@@ -699,12 +704,8 @@
   });
 
   // ==========================================
-  // 11c. 吃饭转盘（🎡 随机决定今天吃什么）
+  // 11c. 吃什么（已下线：功能移除，保留默认菜单数据层供同步兼容）
   // ==========================================
-  const MEAL_COLORS = ['#FF8C42', '#FFB36B', '#F4A259', '#FFD8A8', '#E8833A', '#FFC078', '#FFE0B2', '#F6B26B'];
-  let mealRotation = 0;   // 当前旋转角(弧度, 顺时针)
-  let mealSpinning = false;
-
   function defaultMeals() {
     const names = ['火锅', '麻辣烫', '烧烤', '日料', '汉堡', '披萨', '盖浇饭', '面条', '沙拉', '饺子', '黄焖鸡', '螺蛳粉'];
     const now = Date.now();
@@ -724,136 +725,33 @@
     });
     return removed;
   }
-  function liveMeals() { return live(state.meals); }
 
-  function drawMealWheel(rot) {
-    const cv = $('#mealWheel');
-    if (!cv) return;
-    const ctx = cv.getContext('2d');
-    const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2, R = W / 2 - 6;
-    ctx.clearRect(0, 0, W, H);
-    const items = liveMeals();
-    if (items.length === 0) {
-      ctx.fillStyle = '#FFF4E0'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#4A2C17'; ctx.font = '15px "ZCOOL KuaiLe", sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('先去添加菜单', cx, cy);
-      return;
-    }
-    const n = items.length, step = (Math.PI * 2) / n;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(-Math.PI / 2);   // 让本地 0 角度指向正上方
-    ctx.rotate(rot);             // 转盘整体旋转
-    for (let i = 0; i < n; i++) {
-      const a0 = i * step, a1 = (i + 1) * step;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, a0, a1); ctx.closePath();
-      ctx.fillStyle = MEAL_COLORS[i % MEAL_COLORS.length]; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = '#4A2C17'; ctx.stroke();
-      ctx.save();
-      const mid = a0 + step / 2;
-      ctx.rotate(mid);
-      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#4A2C17'; ctx.font = '15px "ZCOOL KuaiLe", sans-serif';
-      const label = items[i].name;
-      ctx.fillText(label.length > 6 ? label.slice(0, 6) + '…' : label, R - 14, 0);
-      ctx.restore();
-    }
-    ctx.restore();
-    // 中心圆
-    ctx.beginPath(); ctx.arc(cx, cy, 26, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#4A2C17'; ctx.stroke();
-    ctx.fillStyle = '#FF8C42'; ctx.font = '20px "ZCOOL KuaiLe", sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('吃', cx, cy);
-  }
-
-  function spinMeal() {
-    if (mealSpinning) return;
-    const items = liveMeals();
-    if (items.length < 2) { toast('菜单至少要 2 项才能转哦', 'error'); return; }
-    mealSpinning = true;
-    const n = items.length, step = (Math.PI * 2) / n;
-    const win = Math.floor(Math.random() * n);
-    const winCenter = win * step + step / 2;             // 选中扇区中心(本地角度)
-    const turns = 5 + Math.floor(Math.random() * 3);    // 转 5~7 圈
-    const jitter = (Math.random() - 0.5) * step * 0.6;  // 落点在扇区内随机偏移
-    let target = Math.PI * 2 * turns - winCenter + jitter;
-    while (target <= mealRotation) target += Math.PI * 2; // 保证正向旋转
-    const start = mealRotation, dist = target - start, dur = 3200, t0 = performance.now();
-    const ease = (t) => 1 - Math.pow(1 - t, 3);          // easeOutCubic
-    function frame(now) {
-      const p = Math.min(1, (now - t0) / dur);
-      mealRotation = start + dist * ease(p);
-      drawMealWheel(mealRotation);
-      if (p < 1) { requestAnimationFrame(frame); }
-      else {
-        mealSpinning = false;
-        const norm = ((mealRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        let idx = Math.round((-norm - step / 2) / step) % n;
-        idx = (idx % n + n) % n;
-        const pick = items[idx];
-        $('#mealResult').innerHTML = '今天就吃 <b>' + escapeHtml(pick.name) + '</b> ！🎉';
-        toast('命运之轮指向：' + pick.name);
-      }
-    }
-    requestAnimationFrame(frame);
-  }
-
-  function addMeal() {
-    const inp = $('#mealInput');
-    const name = inp.value.trim();
-    if (!name) { toast('先输入菜名', 'error'); return; }
-    if (liveMeals().some(m => m.name === name)) { toast('菜单里已经有「' + name + '」啦', 'error'); inp.value = ''; return; }
-    state.meals.push({ id: uid(), name: name, createdAt: Date.now(), updatedAt: Date.now(), deleted: false });
-    save(); inp.value = ''; mealRotation = 0; renderMeal(); scheduleRoomPush(); toast('已添加 ✨');
-  }
-  function resetMeals() {
-    state.meals = defaultMeals();
-    save(); mealRotation = 0; renderMeal(); scheduleRoomPush(); toast('已恢复默认菜单');
-  }
-  function renderMeal() {
-    drawMealWheel(mealRotation);
-    const list = $('#mealList');
-    if (!list) return;
-    const items = liveMeals();
-    if (items.length === 0) {
-      list.innerHTML = '<li class="meal-empty">菜单空了，点「恢复默认」或上方添加～</li>';
-      return;
-    }
-    list.innerHTML = items.map(m =>
-      '<li data-id="' + m.id + '"><span class="meal-name">' + escapeHtml(m.name) + '</span>' +
-      '<button class="meal-del" data-id="' + m.id + '" title="删除">✕</button></li>'
-    ).join('');
-    list.querySelectorAll('.meal-del').forEach(b => b.addEventListener('click', () => {
-      const m = state.meals.find(x => x.id === b.dataset.id);
-      if (m) { m.deleted = true; m.updatedAt = Date.now(); }
-      save(); mealRotation = 0; renderMeal(); scheduleRoomPush(); toast('已移除');
-    }));
-  }
-
-  // 吃饭转盘：事件绑定（首次加载只绑一次）
-  const mealSpinBtn = $('#mealSpin');
-  if (mealSpinBtn) mealSpinBtn.addEventListener('click', spinMeal);
-  const mealAddBtn = $('#mealAdd');
-  if (mealAddBtn) mealAddBtn.addEventListener('click', addMeal);
-  const mealResetBtn = $('#mealReset');
-  if (mealResetBtn) mealResetBtn.addEventListener('click', resetMeals);
-
-  // 💧 喝水记录（共享每日打卡，跟随房间同步）
+  // 💧 喝水记录（两人分开：state.water[date] = { a: 杯数, b: 杯数 }，兼容旧数字格式）
   const WATER_GOAL = 8;     // 每日目标杯数
   const WATER_ML = 250;     // 每杯毫升
-  function todayWater() { return state.water[todayKey()] || 0; }
+  // 旧数字 → 双人对象（历史共享值归 a）
+  function normWater(v) {
+    if (v && typeof v === 'object') return { a: Number(v.a) || 0, b: Number(v.b) || 0 };
+    return { a: (typeof v === 'number' ? v : 0), b: 0 };
+  }
+  function todayWater() { return normWater(state.water[todayKey()]); }
   function addWater(delta) {
     const k = todayKey();
-    const next = Math.max(0, (state.water[k] || 0) + delta);
-    state.water[k] = next;
+    const me = state.settings.me || 'a';
+    const cur = todayWater();
+    const next = Math.max(0, cur[me] + delta);
+    cur[me] = next;
+    state.water[k] = cur;
     state.waterUpdated = Date.now();
     save(); renderWater(); scheduleRoomPush();
-    if (delta > 0 && next === WATER_GOAL) toast('今天喝水达标啦 💧🎉');
+    if (delta > 0 && next === WATER_GOAL) toast('你今天喝水达标啦 💧🎉');
   }
   function renderWater() {
-    const c = todayWater();
+    const w = todayWater();
+    const me = state.settings.me || 'a';
+    const ta = me === 'a' ? 'b' : 'a';
+    const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
+    const c = w[me], tc = w[ta];
     const $ = (id) => document.querySelector(id);
     const cnt = $('#waterCount');
     if (cnt) {
@@ -861,23 +759,14 @@
       if (cnt.firstChild && cnt.firstChild.nodeType === 3) cnt.firstChild.nodeValue = c;
       else cnt.textContent = c; // 兜底
     }
-    if ($('#waterMl')) $('#waterMl').textContent = (c * WATER_ML) + ' ml';
+    const taEl = $('#waterTaText');
+    if (taEl) taEl.textContent = `${partners[ta]} ${tc}/8杯`;
     const fill = $('#waterFill');
     if (fill) fill.style.width = Math.min(100, Math.round(c / WATER_GOAL * 100)) + '%';
-    const cups = $('#waterCups');
-    if (cups) {
-      let h = '';
-      for (let i = 0; i < WATER_GOAL; i++) {
-        h += '<span class="cup' + (i < c ? ' on' : '') + '">' + (i < c ? '💧' : '○') + '</span>';
-      }
-      cups.innerHTML = h;
-    }
   }
   const wm = $('#waterMinus'), wp = $('#waterPlus');
   if (wm) wm.addEventListener('click', () => addWater(-1));
   if (wp) wp.addEventListener('click', () => addWater(1));
-  const mealInputEl = $('#mealInput');
-  if (mealInputEl) mealInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addMeal(); });
 
   // ==========================================
   // 3. Toast
@@ -1523,25 +1412,29 @@
     { level: '下', cls: 'lv-low', text: '有舍才有得', tip: '放下一点执念，腾出空间给更好的可能。' },
   ];
 
+  // 祈福抽签：两人各自抽，各自可见（state.fortune = { date, by: { a, b } }）
   function renderFortune() {
     const body = $('#fortuneBody');
     if (!body) return;
     const today = todayKey();
-    const st = state.settings.fortune || {};
-    if (st.date === today && st.sign) {
-      const s = st.sign;
-      body.innerHTML =
-        `<div class="fortune-bamboo">🎋</div>` +
-        `<div class="ft-sign ${s.cls}">${s.level}签</div>` +
-        `<div class="ft-text">${s.text}</div>` +
-        `<div class="ft-tip">${s.tip}</div>` +
-        `<div class="ft-date">今天已经祈福过了 · 明天再来抽新签</div>`;
-      return;
-    }
+    const me = state.settings.me || 'a';
+    const ta = me === 'a' ? 'b' : 'a';
+    const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
+    const st = state.fortune || {};
+    const fresh = st.date === today;
+    const mySign = (fresh && st.by && st.by[me]) || null;
+    const taSign = (fresh && st.by && st.by[ta]) || null;
+    const myHtml = mySign
+      ? `<div class="fortune-bamboo">🎋</div><div class="ft-sign ${mySign.cls}">${mySign.level}签</div><div class="ft-text">${mySign.text}</div><div class="ft-tip">${mySign.tip}</div><div class="ft-date">今天已祈福 · 明天再来</div>`
+      : `<div class="fortune-bamboo" id="fortuneBamboo">🎋</div><div class="fortune-done">${partners[me]}，闭上眼默念一件心愿，摇一摇这支签～</div><button class="pixel-btn primary fortune-pick" id="fortunePick">🙏 摇签</button>`;
+    const taHtml = taSign
+      ? `<div class="fortune-bamboo">🎋</div><div class="ft-sign ${taSign.cls}">${taSign.level}签</div><div class="ft-text">${taSign.text}</div><div class="ft-tip">${taSign.tip}</div><div class="ft-date">${partners[ta]} 今天抽到的签</div>`
+      : `<div class="fortune-bamboo">🎋</div><div class="fortune-done">${partners[ta]} 今天还没抽签，等 TA 来摇～</div>`;
     body.innerHTML =
-      `<div class="fortune-bamboo" id="fortuneBamboo">🎋</div>` +
-      `<div class="fortune-done">闭上眼默念一件心愿，摇一摇这支签～</div>` +
-      `<button class="pixel-btn primary fortune-pick" id="fortunePick">🙏 摇签</button>`;
+      `<div class="fortune-grid">
+        <div class="fortune-col"><div class="fortune-title">${partners[me]} 的祈福</div>${myHtml}</div>
+        <div class="fortune-col ta-col"><div class="fortune-title">${partners[ta]} 的祈福</div>${taHtml}</div>
+      </div>`;
     const pick = $('#fortunePick');
     if (pick) pick.addEventListener('click', drawFortune);
   }
@@ -1552,9 +1445,11 @@
     setTimeout(() => {
       const idx = Math.floor(Math.random() * FORTUNE_SIGNS.length);
       const s = FORTUNE_SIGNS[idx];
-      state.settings.fortune = { date: todayKey(), sign: { level: s.level, cls: s.cls, text: s.text, tip: s.tip } };
-      save({ silent: true });
-      renderFortune();
+      const me = state.settings.me || 'a';
+      const today = todayKey();
+      if (!state.fortune || state.fortune.date !== today) state.fortune = { date: today, by: { a: null, b: null } };
+      state.fortune.by[me] = { level: s.level, cls: s.cls, text: s.text, tip: s.tip, ts: Date.now() };
+      save(); renderFortune(); scheduleRoomPush(); // 同步给 TA 看到你抽的签
     }, 700);
   }
 
@@ -2170,15 +2065,39 @@
       meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
       wishes: mergeArr(local.wishes, remote.wishes),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
+      // 喝水分人：按日期取两人各自的最大杯数（兼容旧数字格式）
       water: (() => {
         const out = Object.assign({}, local.water || {});
         Object.keys(remote.water || {}).forEach(k => {
-          out[k] = Math.max(out[k] || 0, remote.water[k] || 0);
+          const ln = normWater(out[k]), rn = normWater(remote.water[k]);
+          out[k] = { a: Math.max(ln.a, rn.a), b: Math.max(ln.b, rn.b) };
         });
         return out;
       })(),
+      // 祈福抽签：两人各自抽，按 by.a/by.b 的 ts 取新（同一日期）
+      fortune: mergeFortune(local.fortune, remote.fortune),
     });
     if (remote.partners) local.settings.partners = mergePlan(local.settings.partners, remote.partners);
+  }
+
+  // 合并两人的祈福签：同日期下 each 取 ts 更大的一支
+  function mergeFortune(local, remote) {
+    const l = (local && local.by) ? local : null;
+    const r = (remote && remote.by) ? remote : null;
+    if (!l && !r) return local || remote || null;
+    const pick = (a, b) => {
+      if (!a && !b) return null;
+      if (!a) return b;
+      if (!b) return a;
+      return ((a.ts || 0) >= (b.ts || 0)) ? a : b;
+    };
+    return {
+      date: (r && r.date) || (l && l.date) || todayKey(),
+      by: {
+        a: pick(l && l.by.a, r && r.by.a),
+        b: pick(l && l.by.b, r && r.by.b),
+      },
+    };
   }
 
   async function roomGet(url, id, pass) {

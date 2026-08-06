@@ -4,15 +4,14 @@ const path = require('path');
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const OUT = 'C:\\Users\\woqutech\\WorkBuddy\\2026-08-04-10-01-24\\personal-workbench\\tools';
 const URL = 'file://C:/Users/woqutech/WorkBuddy/2026-08-04-10-01-24/personal-workbench/index.html';
-const PAGES = ['dashboard', 'todo', 'fitness', 'calendar', 'messages', 'wishes', 'meal'];
+const PAGES = ['dashboard', 'todo', 'fitness', 'horoscope', 'messages', 'wishes'];
 const KEY_ELEMENTS = {
   dashboard: ['#waterPlus', '#mascotBubble', '#statTodo', '#todayDateText', '.dw-mascot .mascot-img'],
-  todo: ['#addTodoBtn', '#todoList'],
+  todo: ['#addTodoBtn', '#todoList', '#calGrid'],
   fitness: ['#addTrainBtn', '#weekStrip'],
-  calendar: ['#calGrid', '#calTitle'],
+  horoscope: ['#horoGrid', '#fortuneBody'],
   messages: ['#msgInput', '#msgSend', '#msgList'],
   wishes: ['#addWishBtn', '#wishWall'],
-  meal: ['#mealSpin', '#mealWheel', '#mealList'],
 };
 
 async function testViewport(browser, viewport, name) {

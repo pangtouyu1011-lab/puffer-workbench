@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1785985799662" />
+  <link rel="stylesheet" href="styles.css?v=1785987056244" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -284,10 +284,6 @@
           <span class="nav-icon">🛎️</span>
           <span class="nav-label">心愿墙</span>
         </button>
-        <button class="nav-item" data-page="meal">
-          <span class="nav-icon">🎡</span>
-          <span class="nav-label">吃什么</span>
-        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="mascot-mini" aria-hidden="true">
@@ -350,14 +346,15 @@
             <div class="stat-value" id="statWeek">0</div>
             <div class="stat-sub">个动作</div>
           </div>
-          <div class="stat-card pixel-border water-mini" id="waterCard" title="点击 +/− 打卡喝水量">
+          <div class="stat-card pixel-border water-mini" id="waterCard" title="各自的喝水量，各记各的">
             <span class="stat-icon">💧</span>
             <div class="stat-label">喝水打卡</div>
             <div class="stat-value" id="waterCount">0<span class="water-unit">/8杯</span></div>
             <div class="water-mini-bar"><div class="water-fill" id="waterFill"></div></div>
+            <div class="water-mini-ta" id="waterTaText">TA 0/8</div>
             <div class="water-mini-actions">
-              <button class="pixel-btn tiny" id="waterMinus" aria-label="减少一杯">−</button>
-              <button class="pixel-btn primary tiny" id="waterPlus" aria-label="增加一杯">+</button>
+              <button class="pixel-btn tiny" id="waterMinus" aria-label="自己减少一杯">−</button>
+              <button class="pixel-btn primary tiny" id="waterPlus" aria-label="自己增加一杯">+</button>
             </div>
           </div>
         </div>
@@ -538,35 +535,6 @@
         </div>
         <div class="wish-wall" id="wishWall"></div>
       </section>
-
-      <!-- 吃饭转盘 -->
-      <section class="page" id="page-meal">
-        <div class="page-head">
-          <div>
-            <h2 class="page-title">🎡 今天吃什么</h2>
-            <p class="page-sub">不知道吃啥？转一下，让命运决定</p>
-          </div>
-        </div>
-        <div class="card pixel-border meal-card">
-          <div class="meal-wheel-wrap">
-            <div class="meal-pointer"></div>
-            <canvas id="mealWheel" width="300" height="300"></canvas>
-          </div>
-          <div class="meal-result" id="mealResult">点击「开始转盘」决定今天吃啥～</div>
-          <button class="pixel-btn primary meal-spin" id="mealSpin">🎯 开始转盘</button>
-        </div>
-        <div class="card pixel-border">
-          <div class="card-head">
-            <h3>🍽️ 菜单清单</h3>
-            <button class="link-btn" id="mealReset">恢复默认</button>
-          </div>
-          <div class="meal-add">
-            <input class="pixel-input" id="mealInput" placeholder="加一个选项，如：螺蛳粉" />
-            <button class="pixel-btn primary" id="mealAdd">+ 添加</button>
-          </div>
-          <ul class="meal-list" id="mealList"></ul>
-        </div>
-      </section>
     </main>
   </div>
 
@@ -590,9 +558,6 @@
     <button class="bn-item" data-page="wishes">
       <span>🛎️</span><small>心愿</small>
     </button>
-    <button class="bn-item" data-page="meal">
-      <span>🎡</span><small>吃什么</small>
-    </button>
   </nav>
 
   <!-- 模态框：通用 -->
@@ -612,6 +577,6 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=1785985799662"></script>
+  <script src="app.js?v=1785987056244"></script>
 </body>
 </html>

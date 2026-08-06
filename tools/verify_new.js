@@ -8,6 +8,7 @@ const SEED = JSON.stringify({
     { id: 't1', text: '今天的事', done: false, priority: 'high', date: (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })(), createdAt: now, updatedAt: now },
     { id: 't2', text: '无日期的事', done: false, priority: '', date: '', createdAt: now, updatedAt: now },
   ],
+  water: (() => { const d = new Date(); const k = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); return { [k]: { a: 2, b: 1 } }; })(),
   settings: { partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 }, me: 'a', city: '杭州' }
 });
 
@@ -29,9 +30,20 @@ const SEED = JSON.stringify({
   }));
   console.log('BRAND:', JSON.stringify(brand));
 
-  // 2) 导航（无 calendar、有 horoscope）
+  // 2) 导航（无 calendar/meal、有 horoscope）
   const nav = await p.evaluate(() => Array.from(document.querySelectorAll('.nav-item')).map(n => n.dataset.page));
   console.log('NAV:', JSON.stringify(nav));
+
+  // 2.5) 喝水分人：me=a 显示 2 杯，TA 显示 1 杯；点 + 后 me 变 3
+  const waterBefore = await p.evaluate(() => ({
+    me: document.getElementById('waterCount').firstChild.nodeValue,
+    ta: document.getElementById('waterTaText').textContent,
+  }));
+  console.log('WATER_BEFORE:', JSON.stringify(waterBefore));
+  await p.evaluate(() => document.getElementById('waterPlus').click());
+  await new Promise(r => setTimeout(r, 200));
+  const waterAfter = await p.evaluate(() => document.getElementById('waterCount').firstChild.nodeValue);
+  console.log('WATER_AFTER_ME_PLUS:', waterAfter);
 
   // 3) 待办日历页
   await p.evaluate(() => document.querySelector('.nav-item[data-page="todo"]').click());
@@ -68,24 +80,24 @@ const SEED = JSON.stringify({
   }));
   console.log('HORO:', JSON.stringify(horo));
 
-  // 5) 抽签
+  // 5) 抽签（双人双栏）：为 me 抽 → 我的签显示、TA 栏未抽占位
   await p.evaluate(() => document.getElementById('fortunePick').click());
   await new Promise(r => setTimeout(r, 1300));
   const fortune = await p.evaluate(() => ({
-    sign: (document.querySelector('.ft-sign') || {}).textContent || '',
-    text: (document.querySelector('.ft-text') || {}).textContent || '',
-    tip: (document.querySelector('.ft-tip') || {}).textContent || '',
-    dateNote: (document.querySelector('.ft-date') || {}).textContent || '',
+    cols: document.querySelectorAll('.fortune-col').length,
+    mySign: (document.querySelector('.fortune-col:not(.ta-col) .ft-sign') || {}).textContent || '',
+    myText: (document.querySelector('.fortune-col:not(.ta-col) .ft-text') || {}).textContent || '',
+    taState: (document.querySelector('.fortune-col.ta-col') || {}).textContent || '',
     pickGone: !document.getElementById('fortunePick'),
   }));
   console.log('FORTUNE:', JSON.stringify(fortune));
 
-  // 6) 再进一次星座页 → 应显示已抽（每日一次生效）
+  // 6) 再进一次星座页 → 我的签保留、TA 仍未抽
   await p.evaluate(() => document.querySelector('.nav-item[data-page="dashboard"]').click());
   await new Promise(r => setTimeout(r, 300));
   await p.evaluate(() => document.querySelector('.nav-item[data-page="horoscope"]').click());
   await new Promise(r => setTimeout(r, 400));
-  const again = await p.evaluate(() => ({ pickGone: !document.getElementById('fortunePick'), signShown: !!document.querySelector('.ft-sign') }));
+  const again = await p.evaluate(() => ({ pickGone: !document.getElementById('fortunePick'), mySignShown: !!document.querySelector('.fortune-col:not(.ta-col) .ft-sign') }));
   console.log('FORTUNE_AGAIN:', JSON.stringify(again));
 
   console.log('ERRORS:', errors.length ? errors : 'none');

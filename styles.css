@@ -1490,3 +1490,13 @@ body {
   80% { transform: rotate(6deg); }
 }
 .fortune-bamboo.shake { animation: fortuneShake .7s ease; }
+
+/* 喝水分人：各自记录 */
+.water-mini-ta { font-size: 11px; color: var(--ink-soft); margin-top: 3px; font-weight: 600; }
+
+/* 祈福抽签：两人双栏 */
+.fortune-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+.fortune-col { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 12px; border-radius: 14px; background: var(--cream); border: 1px solid var(--line); }
+.fortune-col.ta-col { background: #FDF3F6; border-color: #F2D5DE; }
+.fortune-title { font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink-soft); margin-bottom: 2px; }
+@media (max-width: 480px) { .fortune-grid { grid-template-columns: 1fr; } }
