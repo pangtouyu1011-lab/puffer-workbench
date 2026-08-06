@@ -57,7 +57,10 @@
   const GALLERY_MAX = 5;
 
   const APPLE_PLAYLIST_URL = 'https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6';
+  const NETEASE_PLAYLIST_URL = 'https://music.163.com/playlist?id=162638755';
   const musicLink = (id) => id ? 'https://music.apple.com/cn/song/' + id : APPLE_PLAYLIST_URL;
+  const musicSearch = (query) => 'https://music.apple.com/cn/search?term=' + encodeURIComponent(query);
+  const NETEASE_PROFILE_TAGS = ['rain','night','tired','indie','rap','experimental','emotional'];
   const MUSIC_LIBRARY = [
     { title:'简单爱', artist:'周杰伦', id:'535739351', tags:['morning','noon','sun','clear','happy','weekend','friday'] },
     { title:'特别的人', artist:'方大同', id:'1579903651', tags:['morning','noon','cloud','soft','warm','workweek'] },
@@ -89,7 +92,20 @@
     { title:'乌云中', artist:'艾热AIR', id:'', tags:['night','rain','cloud','tired'] },
     { title:'同类', artist:'孙燕姿', id:'535739349', tags:['night','rain','tired','slow'] },
     { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] }
-  ].map(song => ({ ...song, url: musicLink(song.id) }));
+  ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
+    { title:'Pink + White', artist:'Frank Ocean', tags:['morning','sun','soft','warm','indie'], source:'相似推荐', url:musicSearch('Frank Ocean Pink White') },
+    { title:'Best Part', artist:'Daniel Caesar feat. H.E.R.', tags:['morning','noon','cloud','warm','slow'], source:'相似推荐', url:musicSearch('Daniel Caesar Best Part') },
+    { title:'可惜没如果', artist:'林俊杰', tags:['night','rain','tired','emotional'], source:'相似推荐', url:musicSearch('林俊杰 可惜没如果') },
+    { title:'浪漫血液', artist:'林俊杰', tags:['night','cloud','emotional','soft'], source:'相似推荐', url:musicSearch('林俊杰 浪漫血液') },
+    { title:'想自由', artist:'林宥嘉', tags:['night','rain','tired','emotional'], source:'相似推荐', url:musicSearch('林宥嘉 想自由') },
+    { title:'山海', artist:'草东没有派对', tags:['night','rain','indie','experimental','emotional'], source:'相似推荐', url:musicSearch('草东没有派对 山海') },
+    { title:'凄美地', artist:'郭顶', tags:['night','rain','indie','emotional','tired'], source:'相似推荐', url:musicSearch('郭顶 凄美地') },
+    { title:'爱人错过', artist:'告五人', tags:['noon','friday','sun','indie','happy'], source:'相似推荐', url:musicSearch('告五人 爱人错过') },
+    { title:'小宇', artist:'张震岳', tags:['morning','noon','sun','warm','weekend'], source:'相似推荐', url:musicSearch('张震岳 小宇') },
+    { title:'Lover Is a Day', artist:'Cuco', tags:['night','cloud','indie','soft','slow'], source:'相似推荐', url:musicSearch('Cuco Lover Is a Day') },
+    { title:'Snooze', artist:'SZA', tags:['night','rain','soft','warm'], source:'相似推荐', url:musicSearch('SZA Snooze') },
+    { title:'星球坠落', artist:'艾热AIR / 李佳隆', tags:['night','cloud','rap','emotional'], source:'相似推荐', url:musicSearch('艾热AIR 星球坠落') }
+  ]);
 
   // ==========================================
   // 1. 状态与数据
@@ -401,9 +417,9 @@
   // 5.2 纪念日倒计时（从 2023-12-04 起）
   // ==========================================
   const MUSIC_DAYPARTS = {
-    morning: { label: '早晨', title: '给今天开个场' },
-    noon: { label: '午间', title: '午后的轻松三首' },
-    night: { label: '夜晚', title: '把今天慢慢收好' }
+    morning: { label: '早晨', title: '给今天开个场', icon: '☀' },
+    noon: { label: '午间', title: '午后的轻松一首', icon: '◒' },
+    night: { label: '夜晚', title: '把今天慢慢收好', icon: '☾' }
   };
   const musicHash = (text) => { let h = 2166136261; for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
   function currentMusicDaypart() { const hour = new Date().getHours(); return hour < 11 ? 'morning' : (hour < 18 ? 'noon' : 'night'); }
@@ -421,20 +437,30 @@
     if (day === 0 || day === 6) return { label: '周末悠闲', tags: ['weekend','slow'] };
     return { label: '工作日慢慢进入状态', tags: ['workweek','warm'] };
   }
-  function pickMusicFor(part) {
+  function pickMusicFor(part, excluded) {
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
     const wanted = new Set([part, ...weather.tags, ...week.tags]);
+    const styleWanted = new Set(NETEASE_PROFILE_TAGS);
     const seed = todayKey() + part + String(state._weather && state._weather.code);
-    return MUSIC_LIBRARY.map((song, index) => { let score = 0; song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; }); score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score).slice(0, 3).map(item => item.song);
+    const ranked = MUSIC_LIBRARY.map((song, index) => { let score = 0; song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
+    const chosen = ranked.find(item => !excluded || !excluded.has(item.song.title)) || ranked[0];
+    return chosen ? [chosen.song] : [];
   }
-  function renderMusicWidget(activePart) {
-    const list = $('#musicList'); const tabs = $('#musicDayparts'); if (!list || !tabs) return;
-    const part = activePart || currentMusicDaypart(); const weather = musicWeatherProfile(); const week = musicWeekProfile(); const info = MUSIC_DAYPARTS[part];
-    const chip = $('#musicWeatherChip'); const title = $('#musicWidgetTitle'); const hint = $('#musicFloatHint'); const reason = $('#musicReason');
-    if (chip) chip.textContent = weather.icon + ' ' + weather.label; if (title) title.textContent = info.label + ' · ' + info.title; if (hint) hint.textContent = weather.label + ' · ' + week.label; if (reason) reason.textContent = week.label + ' · ' + weather.reason;
-    tabs.innerHTML = Object.keys(MUSIC_DAYPARTS).map(key => '<button class="music-daypart' + (key === part ? ' active' : '') + '" type="button" data-music-part="' + key + '" role="tab" aria-selected="' + (key === part) + '">' + MUSIC_DAYPARTS[key].label + '</button>').join('');
-    list.innerHTML = pickMusicFor(part).map((song, index) => '<article class="music-track"><span class="music-track-no">0' + (index + 1) + '</span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>').join('');
-    if (!tabs.dataset.bound) { tabs.dataset.bound = '1'; tabs.addEventListener('click', e => { const btn = e.target.closest('[data-music-part]'); if (btn) renderMusicWidget(btn.dataset.musicPart); }); }
+  function renderMusicWidget() {
+    const list = $('#musicList'); if (!list) return;
+    const weather = musicWeatherProfile(); const week = musicWeekProfile();
+    const chip = $('#musicWeatherChip'); const title = $('#musicWidgetTitle'); const intro = $('#musicIntro'); const reason = $('#musicReason');
+    if (chip) chip.textContent = weather.icon + ' ' + weather.label;
+    if (title) title.textContent = '今天听什么';
+    if (intro) intro.textContent = '网易云歌单的情绪感 × Apple Music 歌单的华语流行、R&B 与独立音乐，再为今天找一点相似的新歌。';
+    if (reason) reason.textContent = week.label + ' · ' + weather.reason;
+    const usedTitles = new Set();
+    list.innerHTML = Object.keys(MUSIC_DAYPARTS).map(part => {
+      const info = MUSIC_DAYPARTS[part]; const song = pickMusicFor(part, usedTitles)[0];
+      if (!song) return '';
+      usedTitles.add(song.title);
+      return '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
+    }).join('');
   }
 
   function renderAnniversary() {
@@ -2553,6 +2579,11 @@
     musicToggle.setAttribute('aria-expanded', String(!open));
     musicPanel.hidden = open;
     if (!open) renderMusicWidget();
+  });
+  const musicClose = $('#musicPanelClose');
+  if (musicClose && musicToggle && musicPanel) musicClose.addEventListener('click', () => {
+    musicToggle.setAttribute('aria-expanded', 'false');
+    musicPanel.hidden = true;
   });
   renderMusicWidget();
   if (!state.settings.partners) state.settings.partners = { a: (state.settings.ownerName || '孙大炮'), b: '童大侠', updatedAt: 0 };

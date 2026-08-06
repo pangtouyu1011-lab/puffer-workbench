@@ -561,19 +561,18 @@
   </nav>
 
   <aside class="music-float" id="musicFloat">
-    <button class="music-float-toggle" id="musicFloatToggle" type="button" aria-expanded="false" aria-controls="musicFloatPanel">
-      <span class="music-float-note">♫</span>
-      <span><b>今日歌单</b><small id="musicFloatHint">按天气挑三首</small></span>
-      <span class="music-float-chevron">⌃</span>
+    <button class="music-record-toggle" id="musicFloatToggle" type="button" aria-expanded="false" aria-controls="musicFloatPanel" aria-label="打开今日音乐推荐">
+      <span class="music-record-groove"><span class="music-record-label">♫</span></span>
+      <span class="music-record-pulse"></span>
     </button>
     <div class="music-float-panel" id="musicFloatPanel" hidden>
       <div class="music-float-head">
-        <div><span class="music-kicker">你们的歌单 × 今天</span><h3 id="musicWidgetTitle">今日三首推荐</h3></div>
-        <span class="music-weather-chip" id="musicWeatherChip">加载天气中</span>
+        <div><span class="music-kicker">你们的歌单 × 今日心情</span><h3 id="musicWidgetTitle">今天听什么</h3></div>
+        <button class="music-panel-close" id="musicPanelClose" type="button" aria-label="关闭音乐推荐">×</button>
       </div>
-      <div class="music-dayparts" id="musicDayparts" role="tablist"></div>
+      <p class="music-intro" id="musicIntro">根据天气、星期和你们的音乐口味，挑三首今天的陪伴。</p>
       <div class="music-list" id="musicList"></div>
-      <div class="music-float-foot"><span id="musicReason">正在读取今天的天气与心情</span><a href="https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6" target="_blank" rel="noopener">打开歌单 ↗</a></div>
+      <div class="music-float-foot"><span id="musicReason">正在读取今天的天气与心情</span><span class="music-source-links"><a href="https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6" target="_blank" rel="noopener">Apple ↗</a><a href="https://music.163.com/playlist?id=162638755" target="_blank" rel="noopener">网易云 ↗</a></span></div>
     </div>
   </aside>
 
