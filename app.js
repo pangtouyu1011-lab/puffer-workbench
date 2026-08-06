@@ -439,9 +439,9 @@
   // 5.2 纪念日倒计时（从 2023-12-04 起）
   // ==========================================
   const MUSIC_DAYPARTS = {
-    morning: { label: '早晨', title: '给今天开个场', icon: '☀' },
-    noon: { label: '午间', title: '午后的轻松一首', icon: '◒' },
-    night: { label: '夜晚', title: '把今天慢慢收好', icon: '☾' }
+    morning: { label: '早晨', title: '给今天开个场', icon: '☀', greeting: '早上好，今天也要元气满满！' },
+    noon: { label: '午间', title: '午后的轻松一首', icon: '◒', greeting: '午安，忙了一上午，听首歌歇一会儿。' },
+    night: { label: '夜晚', title: '把今天慢慢收好', icon: '☾', greeting: '晚上好，辛苦一天了，听首歌慢慢放松。' }
   };
   const musicHash = (text) => { let h = 2166136261; for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
   function currentMusicDaypart() { const hour = new Date().getHours(); return hour < 11 ? 'morning' : (hour < 18 ? 'noon' : 'night'); }
@@ -474,7 +474,7 @@
     const chip = $('#musicWeatherChip'); const title = $('#musicWidgetTitle'); const intro = $('#musicIntro'); const reason = $('#musicReason');
     if (chip) chip.textContent = weather.icon + ' ' + weather.label;
     if (title) title.textContent = '今天听什么';
-    if (intro) intro.textContent = '两份歌单一起参考，当前只推送「' + MUSIC_DAYPARTS[currentMusicDaypart()].label + '」这一首。';
+    if (intro) intro.textContent = MUSIC_DAYPARTS[currentMusicDaypart()].greeting;
     if (reason) reason.textContent = week.label + ' · ' + weather.reason;
     const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part]; const song = pickMusicFor(part)[0];
     if (!song) { list.innerHTML = ''; return; }
