@@ -1842,11 +1842,18 @@
   // ==========================================
   // 11. 同步 / 数据管理
   // ==========================================
+  let syncBusy = false;
   function updateSyncPill() {
     const code = state.settings.syncCode;
     const cloud = state.settings.cloudUrl;
     const dot = $('#syncDot');
     const text = $('#syncText');
+    if (!dot || !text) return;
+    if (syncBusy && state.settings.room && state.settings.room.joined) {
+      dot.className = 'sync-dot cloud';
+      text.textContent = '同步中…';
+      return;
+    }
     if (syncFailed && state.settings.room && state.settings.room.joined) {
       dot.className = 'sync-dot error';
       text.textContent = '同步失败·点重试';
@@ -1869,14 +1876,8 @@
 
   // 同步进行中：pill 显示「同步中…」；结束(on=false)按最新状态刷新最终态
   function setSyncPillBusy(on) {
-    const dot = $('#syncDot');
-    const text = $('#syncText');
-    if (on) {
-      if (dot) dot.className = 'sync-dot cloud';
-      if (text) text.textContent = '同步中…';
-    } else {
-      updateSyncPill();
-    }
+    syncBusy = !!on;
+    updateSyncPill();
   }
 
   // 导出 JSON
@@ -2448,11 +2449,16 @@
     const r = state.settings.room;
     try {
       const remote = await roomGet(r.url, r.id, r.pass);
+      // 成功访问服务器就代表同步链路正常，即使数据版本没有变化也要清除旧错误状态
+      r.lastSync = Date.now();
+      r.lastError = '';
+      syncFailed = false;
+      updateSyncPill();
+      updateRoomStatus();
       if (remote.rev === r.lastRev) return; // 无变化
       const prevIds = new Set(state.messages.map(m => m.id));
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
-      r.lastSync = Date.now();
       save({ silent: true });
       checkNewMessages(prevIds);
       renderCurrent();
@@ -2463,8 +2469,9 @@
       const changed = r.lastError !== message;
       r.lastError = message;
       updateRoomStatus();
+      updateSyncPill();
       if (changed) toast('自动同步失败：' + message, 'error');
-      scheduleSyncRetry();
+      // 轮询本身会继续重试，不要把拉取失败误当成写入失败再触发上传
     }
   }
 
@@ -2585,7 +2592,7 @@
     if (r.joined) {
       const backend = r.backend === 'supabase' ? 'Supabase' : 'Worker';
       const error = r.lastError ? `<br><span style="color:var(--danger)">同步错误：${escapeHtml(r.lastError)}</span>` : '';
-      el.innerHTML = `已加入房间「<strong>${escapeHtml(r.id)}</strong>」· ${backend} · 最近同步 ${fmtAgo(r.lastSync)} · 每 12 秒自动拉取对方更新${error}`;
+      el.innerHTML = `已加入房间「<strong>${escapeHtml(r.id)}</strong>」· ${backend} · 最近检查 ${fmtAgo(r.lastSync)} · 前台每 3 秒自动拉取对方更新${error}`;
     } else {
       el.textContent = '尚未加入共享房间';
     }
