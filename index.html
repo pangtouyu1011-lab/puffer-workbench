@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script>
     (() => {
-      const pageVersion = '20260807-storage-guard-1';
+      const pageVersion = '20260807-mobile-polish-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -30,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260807-storage-guard-1" />
+  <link rel="stylesheet" href="styles.css?v=20260807-mobile-polish-1" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -267,7 +267,7 @@
           <span class="sync-dot" id="syncDot"></span>
           <span class="sync-text" id="syncText">本地</span>
         </div>
-        <button class="icon-btn pixel-btn" id="settingsBtn" aria-label="设置">
+        <button type="button" class="icon-btn pixel-btn" id="settingsBtn" aria-label="打开设置">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94a7.5 7.5 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.5 7.5 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.65 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.5 7.5 0 0 0 0 1.88L2.77 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.05.7 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.24 1.13-.56 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
         </button>
       </div>
@@ -426,8 +426,8 @@
               <button class="seg-btn" data-filter="active">未完成</button>
               <button class="seg-btn" data-filter="done">已完成</button>
             </div>
-            <button class="pixel-btn primary" id="addTodoBtn">+ 新建</button>
-            <button class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办到 iOS 日历">📅 导出日历</button>
+            <button type="button" class="pixel-btn primary" id="addTodoBtn">＋ 新建待办</button>
+            <button type="button" class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办到 iOS 日历">📅 导出</button>
           </div>
         </div>
         <!-- 月历（点击日期 → 下方列表只显示该日待办） -->
@@ -475,8 +475,8 @@
             <p class="page-sub" id="fitnessToday">--</p>
           </div>
           <div class="page-actions">
-            <button class="pixel-btn ghost" id="openPlanBtn">📅 周期计划</button>
-            <button class="pixel-btn primary" id="addTrainBtn">+ 记录训练</button>
+            <button type="button" class="pixel-btn ghost" id="openPlanBtn">📅 训练计划</button>
+            <button type="button" class="pixel-btn primary" id="addTrainBtn">＋ 记录训练</button>
           </div>
         </div>
 
@@ -518,10 +518,10 @@
             <p class="page-sub">两个人的悄悄话 · 实时同步</p>
           </div>
           <div class="page-actions">
-            <button class="pixel-btn ghost active" id="msgNotifyToggle" title="开启后，收到对方新留言会弹出系统通知">🔔 系统通知</button>
+            <button type="button" class="pixel-btn ghost active" id="msgNotifyToggle" title="开启后，收到对方新留言会弹出系统通知">🔔 通知</button>
             <div class="seg" id="msgIdentitySeg">
-              <button class="seg-btn active" data-me="a">以孙大炮</button>
-              <button class="seg-btn" data-me="b">以童大侠</button>
+              <button type="button" class="seg-btn active" data-me="a">我是孙大炮</button>
+              <button type="button" class="seg-btn" data-me="b">我是童大侠</button>
             </div>
           </div>
         </div>
@@ -560,10 +560,10 @@
       <span>🏠</span><small>首页</small>
     </button>
     <button class="bn-item" data-page="todo">
-      <span>📆</span><small>待办日历</small>
+      <span>📆</span><small>待办</small>
     </button>
     <button class="bn-item" data-page="fitness">
-      <span>💪</span><small>健身</small>
+      <span>💪</span><small>训练</small>
     </button>
     <button class="bn-item" data-page="horoscope">
       <span>✨</span><small>星座</small>
@@ -597,7 +597,7 @@
     <div class="modal pixel-border" id="modal">
       <div class="modal-head">
         <h3 id="modalTitle">标题</h3>
-        <button class="modal-close" id="modalClose">×</button>
+        <button type="button" class="modal-close" id="modalClose" aria-label="关闭">×</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
       <div class="modal-foot" id="modalFoot"></div>
@@ -609,6 +609,6 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=20260807-storage-guard-1"></script>
+  <script src="app.js?v=20260807-mobile-polish-1"></script>
 </body>
 </html>

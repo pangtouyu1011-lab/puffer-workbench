@@ -1247,6 +1247,40 @@ body {
   .train-date { width: 100%; }
 }
 
+/* ============= 手机端操作区：按钮不挤压、不溢出 ============= */
+@media (max-width: 640px) {
+  .page-head { gap: 10px; margin-bottom: 14px; }
+  .page-title { line-height: 1.25; }
+  .page-sub { max-width: 100%; line-height: 1.55; }
+  .page-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+  .page-actions > .seg,
+  .page-actions > #msgNotifyToggle,
+  .page-actions > #msgIdentitySeg { grid-column: 1 / -1; width: 100%; }
+  .page-actions > .seg { display: flex; }
+  .page-actions > .seg .seg-btn { flex: 1; min-width: 0; }
+  .page-actions > .pixel-btn { width: 100%; min-height: 42px; padding: 9px 8px; font-size: 13px; }
+  .page-actions > #msgNotifyToggle { width: 100%; }
+  .cal-top { gap: 8px; }
+  .cal-top .pixel-btn { min-width: 0; flex: 1; padding-inline: 8px; }
+  .msg-compose { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .msg-compose .pixel-btn { width: 100%; min-height: 42px; }
+  .card-head { gap: 8px; }
+  .card-head h3 { min-width: 0; line-height: 1.35; }
+  .card-head .link-btn { flex-shrink: 0; }
+  .day-nav .pill { min-width: 42px; min-height: 38px; }
+}
+
+@media (max-width: 380px) {
+  .app-header { padding-inline: 9px; }
+  .header-right { gap: 6px; }
+  .sync-pill { max-width: 116px; padding-inline: 9px; overflow: hidden; }
+  .sync-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brand-title { font-size: 14px; }
+  .page-actions > .pixel-btn { font-size: 12px; }
+  .bottom-nav .bn-item { padding-inline: 0; font-size: 10px; }
+  .bottom-nav .bn-item span { font-size: 17px; }
+}
+
 @media (min-width: 1200px) {
   .dash-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 }
