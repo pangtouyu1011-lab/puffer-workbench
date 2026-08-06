@@ -12,6 +12,9 @@ const cors = {
   'Access-Control-Allow-Headers': 'Content-Type'
 };
 
+// One KV value per room, with a bounded payload. Historical data is compacted by the client.
+const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
+
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -34,6 +37,7 @@ async function handle(request) {
   if (!m) return json({ error: 'not_found' }, 404, cors);
 
   const room = decodeURIComponent(m[1]);
+  if (!room || room.length > 64) return json({ error: 'bad_room' }, 400, cors);
   const dataKey = 'room:' + room;
   const metaKey = 'meta:' + room;
 
@@ -53,6 +57,9 @@ async function handle(request) {
     let body;
     try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
     const pass = (body && body.pass) || '';
+    if (!body || body.data === undefined) return json({ error: 'data_required' }, 400, cors);
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(body.data)).byteLength;
+    if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
     const meta = await BENCH.get(metaKey, { type: 'json' });
     if (meta) {
       if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
@@ -62,7 +69,7 @@ async function handle(request) {
     const rev = (meta ? meta.rev : 0) + 1;
     const now = Date.now();
     await BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
-    await BENCH.put(dataKey, JSON.stringify({ data: body ? body.data : null, rev, updatedAt: now }));
+    await BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
     return json({ ok: true, rev, updatedAt: now }, 200, cors);
   }
 

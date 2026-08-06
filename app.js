@@ -286,6 +286,8 @@
       if (!state.meals) state.meals = defaultMeals();
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
+      compactRoomState();
+      save({ silent: true });
       // 迁移旧版共享抽签（settings.fortune 单一签）→ 顶层双人结构（旧签归 a）
       if (state.settings && state.settings.fortune && state.settings.fortune.date && state.settings.fortune.sign) {
         state.fortune = { date: state.settings.fortune.date, by: { a: state.settings.fortune.sign, b: null } };
@@ -2137,16 +2139,44 @@
     return !!(r && r.joined && r.url && r.id && r.pass);
   }
 
+  // Keep sync payloads bounded: remove old tombstones and cap growing collections.
+  const ROOM_TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, meals: 300, wishes: 200 };
+  const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
+  function roomItemTime(item) { return Number(item && (item.updatedAt || item.createdAt)) || 0; }
+  function compactRoomArray(arr, limit, now = Date.now()) {
+    const kept = (Array.isArray(arr) ? arr : []).filter((item) => {
+      if (!item || item.id == null) return false;
+      return !item.deleted || !item.updatedAt || now - item.updatedAt <= ROOM_TOMBSTONE_RETENTION_MS;
+    });
+    kept.sort((a, b) => roomItemTime(b) - roomItemTime(a));
+    return kept.slice(0, limit).sort((a, b) => roomItemTime(a) - roomItemTime(b));
+  }
+  function compactRoomWater(water, now = Date.now()) {
+    const cutoff = new Date(now - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return Object.fromEntries(Object.entries(water && typeof water === 'object' ? water : {}).filter(([date]) => date >= cutoff));
+  }
+  function compactRoomState(now = Date.now()) {
+    state.todos = compactRoomArray(state.todos, ROOM_ARRAY_LIMITS.todos, now);
+    state.trainings = compactRoomArray(state.trainings, ROOM_ARRAY_LIMITS.trainings, now);
+    state.messages = compactRoomArray(state.messages, ROOM_ARRAY_LIMITS.messages, now);
+    state.gallery = compactRoomArray(state.gallery, ROOM_ARRAY_LIMITS.gallery, now);
+    state.meals = compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now);
+    state.wishes = compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now);
+    state.water = compactRoomWater(state.water, now);
+  }
+
   // 仅同步数据部分，不同步个人设置（ownerName 等各自保留）
   function serializeRoom() {
+    const now = Date.now();
     return {
-      todos: state.todos,
-      trainings: state.trainings,
-      messages: state.messages,
-      gallery: state.gallery,
-      meals: state.meals,
-      wishes: state.wishes,
-      water: state.water,
+      todos: compactRoomArray(state.todos, ROOM_ARRAY_LIMITS.todos, now),
+      trainings: compactRoomArray(state.trainings, ROOM_ARRAY_LIMITS.trainings, now),
+      messages: compactRoomArray(state.messages, ROOM_ARRAY_LIMITS.messages, now),
+      gallery: compactRoomArray(state.gallery, ROOM_ARRAY_LIMITS.gallery, now),
+      meals: compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now),
+      wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
+      water: compactRoomWater(state.water, now),
       fortune: state.fortune,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
@@ -2210,6 +2240,7 @@
       fortune: mergeFortune(local.fortune, remote.fortune),
     });
     if (remote.partners) local.settings.partners = mergePlan(local.settings.partners, remote.partners);
+    compactRoomState();
   }
 
   // 合并两人的祈福签：同日期下 each 取 ts 更大的一支
@@ -2297,6 +2328,10 @@
   }
 
   async function roomPut(url, id, pass, data, dataHash) {
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(data)).byteLength;
+    if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) {
+      throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
+    }
     const r = state.settings.room;
     if (r.backend === 'supabase') {
       // 走 Edge Function：服务端写 pass 哈希，客户端不再持有明文存储
@@ -2315,6 +2350,7 @@
         if (body.error === 'forbidden') throw new Error('口令错误');
         if (body.error === 'conflict') throw new Error('版本冲突（请稍后重试）');
         if (body.error === 'data_hash_mismatch') throw new Error('上传内容校验失败，请重试');
+        if (body.error === 'payload_too_large') throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
         throw new Error('HTTP ' + res.status);
       }
       if (body.dataHash && body.dataHash !== dataHash) throw new Error('服务器确认内容摘要不一致');
@@ -2329,6 +2365,7 @@
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
+      if (e.error === 'payload_too_large') throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
       throw new Error('HTTP ' + res.status);
     }
     return res.json();
@@ -2592,6 +2629,7 @@
     (state.messages || []).forEach(m => {
       if (!m.deleted && m.createdAt && m.createdAt < cutoff) { m.deleted = true; m.updatedAt = now; delMsgs++; }
     });
+    compactRoomState(now);
     s.lastClean = now;
     save(); // save 内部会在已加入房间时自动同步给对方
     if (delTodos || delMsgs) {

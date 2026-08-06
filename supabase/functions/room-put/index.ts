@@ -13,6 +13,7 @@ const CORS = {
 };
 
 const PBKDF2_ITER = 100000;
+const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
 
 const hits = new Map();
 function rateLimit(ip: string): boolean {
@@ -135,6 +136,12 @@ Deno.serve(async (req) => {
   }
 
   const incomingDigest = await dataDigest(data);
+  if (incomingDigest.bytes > MAX_ROOM_PAYLOAD_BYTES) {
+    return new Response(JSON.stringify({ error: 'payload_too_large' }), {
+      status: 413,
+      headers: { ...CORS, 'content-type': 'application/json' },
+    });
+  }
   if (expectedDataHash && expectedDataHash !== incomingDigest.hash) {
     return new Response(JSON.stringify({ error: 'data_hash_mismatch' }), {
       status: 400,
