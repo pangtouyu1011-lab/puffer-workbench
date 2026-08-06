@@ -1521,6 +1521,7 @@ body {
 .music-track-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
 .music-track-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .music-track-source { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 999px; color: #9E4F58; background: #FFF0EA; font-size: 9px; }
+.music-lyric { margin-top: 5px; color: #8E6A62; font-size: 11px; line-height: 1.45; font-style: italic; }
 .music-track a { color: #9E4F58; font-size: 18px; text-decoration: none; }
 .music-float-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
 .music-source-links { display: flex; flex: 0 0 auto; gap: 8px; }

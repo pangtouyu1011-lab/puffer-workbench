@@ -61,6 +61,22 @@
   const musicLink = (id) => id ? 'https://music.apple.com/cn/song/' + id : APPLE_PLAYLIST_URL;
   const musicSearch = (query) => 'https://music.apple.com/cn/search?term=' + encodeURIComponent(query);
   const NETEASE_PROFILE_TAGS = ['rain','night','tired','indie','rap','experimental','emotional'];
+  const MUSIC_LYRICS = {
+    '简单爱':'我想带你骑单车',
+    '爱在西元前':'我给你的爱写在西元前',
+    '水星记':'环游是无趣 至少可以陪着你',
+    '轨迹':'我会发着呆 然后忘记你',
+    '夏日漱石':'我想和你一起看夏日漱石',
+    '一点点':'就让回忆永远停在那里',
+    'Pink + White':'Inhale, in the morning',
+    'Best Part':'You are the best part',
+    '可惜没如果':'如果那两个字没有颤抖',
+    '想自由':'我感到很疲倦',
+    '山海':'我看着天真的我自己',
+    '凄美地':'别让我的梦醒来',
+    '爱人错过':'我肯定在几百年前就说过爱你',
+    '小宇':'总有一天我会带你去看天荒地老'
+  };
   const MUSIC_LIBRARY = [
     { title:'简单爱', artist:'周杰伦', id:'535739351', tags:['morning','noon','sun','clear','happy','weekend','friday'] },
     { title:'特别的人', artist:'方大同', id:'1579903651', tags:['morning','noon','cloud','soft','warm','workweek'] },
@@ -458,15 +474,32 @@
     const chip = $('#musicWeatherChip'); const title = $('#musicWidgetTitle'); const intro = $('#musicIntro'); const reason = $('#musicReason');
     if (chip) chip.textContent = weather.icon + ' ' + weather.label;
     if (title) title.textContent = '今天听什么';
-    if (intro) intro.textContent = '网易云歌单的情绪感 × Apple Music 歌单的华语流行、R&B 与独立音乐，再为今天找一点相似的新歌。';
+    if (intro) intro.textContent = '两份歌单一起参考，当前只推送「' + MUSIC_DAYPARTS[currentMusicDaypart()].label + '」这一首。';
     if (reason) reason.textContent = week.label + ' · ' + weather.reason;
-    const usedTitles = new Set();
-    list.innerHTML = Object.keys(MUSIC_DAYPARTS).map(part => {
-      const info = MUSIC_DAYPARTS[part]; const song = pickMusicFor(part, usedTitles)[0];
-      if (!song) return '';
-      usedTitles.add(song.title);
-      return '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
-    }).join('');
+    const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part]; const song = pickMusicFor(part)[0];
+    if (!song) { list.innerHTML = ''; return; }
+    const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
+    list.innerHTML = '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
+  }
+
+  let musicSlotTimer = null;
+  function notifyMusicRecommendation() {
+    const part = currentMusicDaypart(); const day = todayKey(); const slotKey = day + ':' + part;
+    if (state.settings._musicNotifiedSlot === slotKey) return;
+    const song = pickMusicFor(part)[0]; if (!song) return;
+    state.settings._musicNotifiedSlot = slotKey; save({ silent: true }); renderMusicWidget();
+    const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
+    toast(infoMusicToast(part, song, lyric), 'info');
+    try {
+      if (state.settings.notifySystem !== false && 'Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('♫ ' + MUSIC_DAYPARTS[part].label + '音乐到了', { body: song.title + ' · “' + lyric + '”', tag: 'puffer-music-' + part });
+        n.onclick = () => { try { window.focus(); } catch (e) {} const toggle = $('#musicFloatToggle'); if (toggle) toggle.click(); n.close(); };
+      }
+    } catch (e) { /* 浏览器通知不可用时保留页面内提示 */ }
+  }
+  function infoMusicToast(part, song, lyric) { return '♫ ' + MUSIC_DAYPARTS[part].label + '：' + song.title + ' · “' + lyric + '”'; }
+  function startMusicSlotTimer() {
+    clearInterval(musicSlotTimer); musicSlotTimer = setInterval(() => { renderMusicWidget(); notifyMusicRecommendation(); }, 30000);
   }
 
   function renderAnniversary() {
@@ -2592,6 +2625,8 @@
     musicPanel.hidden = true;
   });
   renderMusicWidget();
+  notifyMusicRecommendation();
+  startMusicSlotTimer();
   if (!state.settings.partners) state.settings.partners = { a: (state.settings.ownerName || '孙大炮'), b: '童大侠', updatedAt: 0 };
   if (!state.settings.me) state.settings.me = 'a';
   if (!state.settings.city) state.settings.city = '杭州';
@@ -2612,6 +2647,8 @@
       if (roomActive()) pushToRoom();
       updateMsgBadge();
       updateTitleBadge();
+      renderMusicWidget();
+      notifyMusicRecommendation();
     }
   });
   window.addEventListener('online', () => {
