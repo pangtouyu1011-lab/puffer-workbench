@@ -2151,6 +2151,7 @@
   // ==========================================
   let roomTimer = null;
   let pushTimer = null;
+  let pollInFlight = null;
 
   function roomActive() {
     const r = state.settings.room;
@@ -2442,7 +2443,7 @@
     });
   }
 
-  async function pollRoom() {
+  async function pollRoomOnce() {
     if (!roomActive()) return;
     const r = state.settings.room;
     try {
@@ -2465,6 +2466,15 @@
       if (changed) toast('自动同步失败：' + message, 'error');
       scheduleSyncRetry();
     }
+  }
+
+  // 接收端避免并发请求：前台每 3 秒检查一次，回到页面/重新获得焦点时立即检查
+  async function pollRoom() {
+    if (!roomActive() || document.hidden || pollInFlight) return pollInFlight;
+    const run = pollRoomOnce();
+    pollInFlight = run;
+    try { return await run; }
+    finally { if (pollInFlight === run) pollInFlight = null; }
   }
 
   let pushInFlight = null;
@@ -2508,7 +2518,8 @@
 
   function startRoomPolling() {
     if (roomTimer) clearInterval(roomTimer);
-    roomTimer = setInterval(pollRoom, 12000);
+    roomTimer = setInterval(pollRoom, 3000);
+    pollRoom();
   }
 
   async function joinRoom() {
@@ -2652,8 +2663,10 @@
     }
   });
   window.addEventListener('online', () => {
+    pollRoom();
     if (roomActive()) pushToRoom();
   });
+  window.addEventListener('focus', () => { pollRoom(); });
   updateMsgBadge();
   updateMsgNotifyBtn();
   goPage('dashboard');
