@@ -248,12 +248,12 @@
   // ==========================================
   // 每个页面的陪伴文案（侧栏河豚；dashboard 用随机语录，不走这里）
   const PAGE_QUOTES = {
-    todo: '一起把待办清空吧 💪',
+    todo: '把待办和日历一起理一理 📆',
     fitness: '练完记得拉伸，好好休息 🌿',
-    calendar: '看看这个月有什么小安排 📅',
     messages: 'TA 的心里话都藏在这里 💌',
     wishes: '心愿不怕多，慢慢都会实现 🛎️',
     meal: '今天想好吃什么了吗？🍜',
+    horoscope: '看看今天的星座运势，抽一支签吧 ✨',
   };
   function pageMascotQuote(name) {
     const q = PAGE_QUOTES[name];
@@ -288,12 +288,12 @@
   function onPageEnter(name) {
     switch (name) {
       case 'dashboard': renderDashboard(); break;
-      case 'todo': renderTodo(); break;
+      case 'todo': renderTodoPage(); break;
       case 'fitness': renderFitness(); break;
       case 'messages': renderMessages(); break;
       case 'wishes': renderWishes(); break;
       case 'meal': renderMeal(); break;
-      case 'calendar': renderCalendar(); break;
+      case 'horoscope': renderHoroscope(); renderFortune(); break;
     }
   }
 
@@ -990,7 +990,7 @@
   function updateOwnerUI() {
     const p = state.settings.partners || { a: '孙大炮', b: '童大侠' };
     const sub = $('#brandSub');
-    if (sub) sub.textContent = `${p.a} & ${p.b} 的河豚工作台`;
+    if (sub) sub.textContent = `${p.a} & ${p.b} 的小窝`;
     const gt = $('#galleryHeroTitle');
     if (gt) gt.textContent = `📸 ${p.a} & ${p.b} 的精选回忆`;
     const dt = $('#dwTitle');
@@ -1189,9 +1189,11 @@
     let items = sortTodos(live(state.todos));
     if (todoFilter === 'active') items = items.filter(t => !t.done);
     if (todoFilter === 'done') items = items.filter(t => t.done);
+    if (calSelected) items = items.filter(t => t.date === calSelected); // 选中日期时只看那一天
+    renderTodoDayBar();
 
     if (items.length === 0) {
-      list.innerHTML = `<li class="todo-empty">${live(state.todos).length === 0 ? '还没有待办，点 + 新建一个吧 ✨' : '当前筛选下没有待办'}</li>`;
+      list.innerHTML = `<li class="todo-empty">${live(state.todos).length === 0 ? '还没有待办，点 + 新建一个吧 ✨' : (calSelected ? '这一天还没有待办，点上面「+ 加待办」✨' : '当前筛选下没有待办')}</li>`;
       return;
     }
     list.innerHTML = items.map(t => `
@@ -1211,6 +1213,49 @@
         </div>
       </li>
     `).join('');
+  }
+
+  // 待办日历页：月历 + 待办列表一起渲染
+  function renderTodoPage() {
+    renderCalendar();
+    renderTodo();
+  }
+
+  // 选中日期时的顶部提示条（含纪念日横幅 / 显示全部 / 加待办）
+  function renderTodoDayBar() {
+    const bar = $('#todoDayBar');
+    if (!bar) return;
+    if (!calSelected) { bar.hidden = true; bar.innerHTML = ''; return; }
+    bar.hidden = false;
+    const parts = calSelected.split('-');
+    const y = +parts[0], m = +parts[1], d = +parts[2];
+    const dateLabel = `${y}年${m}月${d}日`;
+    const isAnni = (m === 12 && d === 4);
+    const anniDays = isAnni ? Math.max(0, Math.floor((new Date(y, 11, 4) - new Date(2023, 11, 4)) / 86400000)) : 0;
+    const count = live(state.todos).filter(t => t.date === calSelected).length;
+    bar.innerHTML =
+      (isAnni ? `<div class="cal-anni-banner" style="margin-bottom:10px;">💞 这是你们的纪念日！在一起的第 ${anniDays} 天</div>` : '') +
+      `<div class="todo-day-bar">
+        <span class="tdb-label">📅 ${dateLabel} 的待办（${count} 条）</span>
+        <button class="pixel-btn ghost" id="calClearBtn">显示全部</button>
+        <button class="pixel-btn primary" id="calDayAdd">+ 加待办</button>
+      </div>`;
+    const clearBtn = $('#calClearBtn');
+    if (clearBtn) clearBtn.addEventListener('click', clearCalSelect);
+    const addBtn = $('#calDayAdd');
+    if (addBtn) addBtn.addEventListener('click', () => openTodoModal(null, calSelected));
+  }
+
+  // 点击月历某天：页内过滤待办列表
+  function selectCalDay(key) {
+    calSelected = key;
+    renderCalendar();
+    renderTodo();
+  }
+  function clearCalSelect() {
+    calSelected = null;
+    renderCalendar();
+    renderTodo();
   }
 
   function openTodoModal(id, presetDate) {
@@ -1347,61 +1392,171 @@
     }).join('');
   }
 
-  function openCalDay(key) {
-    const parts = key.split('-');
-    const y = +parts[0], m = +parts[1], d = +parts[2];
-    const dateLabel = `${y}年${m}月${d}日`;
-    const isAnni = (m === 12 && d === 4);
-    calSelected = key;
-    const items = sortTodos(live(state.todos).filter(t => t.date === key));
-    const listHtml = items.length ? items.map(t =>
-      `<li class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
-        <span class="todo-check ${t.done ? 'done' : ''}" data-act="toggle"></span>
-        <div class="ti-main">
-          <div class="ti-text">${escapeHtml(t.text)}</div>
-          <div class="ti-meta">${t.priority && t.priority !== 'none' ? `<span class="ti-prio ${t.priority}">${t.priority === 'high' ? '高优先级' : t.priority === 'mid' ? '中优先级' : '低优先级'}</span>` : ''}</div>
-        </div>
-        <div class="ti-actions"><button data-act="edit" title="编辑">✎</button><button data-act="del" class="del" title="删除">🗑</button></div>
-      </li>`
-    ).join('') : '<li class="todo-empty">这一天还没有待办，加一个吧 ✨</li>';
-    openModal({
-      title: `📅 ${dateLabel}`,
-      body:
-        (isAnni ? `<div class="cal-anni-banner">💞 这是你们的纪念日！在一起的第 ${Math.max(0, Math.floor((new Date(y, 11, 4) - new Date(2023, 11, 4)) / 86400000))} 天</div>` : '') +
-        `<ul class="todo-list" id="calTodoList">${listHtml}</ul>
-        <button class="pixel-btn primary" id="calAdd" style="margin-top:10px;width:100%;">+ 在这一天加待办</button>`,
-      foot: `<button class="pixel-btn ghost" id="calClose">关闭</button>`
-    });
-    $('#calClose').addEventListener('click', closeModal);
-    $('#calAdd').addEventListener('click', () => openTodoModal(null, key));
-    $('#calTodoList').addEventListener('click', (e) => {
-      const item = e.target.closest('.todo-item');
-      if (!item) return;
-      const id = item.dataset.id;
-      const act = e.target.dataset.act;
-      const t = state.todos.find(x => x.id === id);
-      if (!t) return;
-      if (act === 'toggle') { t.done = !t.done; t.updatedAt = Date.now(); save(); openCalDay(key); renderCalendar(); renderTodo(); }
-      else if (act === 'edit') { openTodoModal(id); }
-      else if (act === 'del') {
-        if (confirm('确认删除这条待办？')) {
-          t.deleted = true; t.updatedAt = Date.now();
-          save(); openCalDay(key); renderCalendar(); renderTodo(); toast('已删除');
-        }
-      }
-    });
-  }
-
-  // 日历导航与点击
+  // 日历导航与点击（合并进待办页：点击日期 → 页内过滤）
   const calPrev = $('#calPrev'), calNext = $('#calNext'), calToday = $('#calToday');
-  if (calPrev) calPrev.addEventListener('click', () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); });
-  if (calNext) calNext.addEventListener('click', () => { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); });
-  if (calToday) calToday.addEventListener('click', () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); calSelected = null; renderCalendar(); });
+  if (calPrev) calPrev.addEventListener('click', () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } clearCalSelect(); });
+  if (calNext) calNext.addEventListener('click', () => { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } clearCalSelect(); });
+  if (calToday) calToday.addEventListener('click', () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); clearCalSelect(); });
   const calGrid = $('#calGrid');
   if (calGrid) calGrid.addEventListener('click', (e) => {
     const cell = e.target.closest('[data-date]');
-    if (cell) openCalDay(cell.dataset.date);
+    if (cell) selectCalDay(cell.dataset.date);
   });
+
+  // ==========================================
+  // 6.5 每日星座（双子座 × 天秤座）+ 祈福抽签
+  // ==========================================
+  const HOROS = {
+    gemini: { name: '双子座', icon: '♊', dates: '5.21 - 6.21', tag: '灵动 · 好奇 · 百变', cls: 'sign-gemini' },
+    libra:  { name: '天秤座', icon: '♎', dates: '9.23 - 10.23', tag: '优雅 · 平衡 · 温柔', cls: 'sign-libra' },
+  };
+  const HORO_OVERALL = [
+    '今天状态在线，适合把积压的事一件件清掉，效率会比想象中高。',
+    '心情像天气一样明亮，遇到的每个人都会对你好一点。',
+    '有一点小懒散，但没关系，今天更适合慢下来整理自己。',
+    '灵感很多，想到什么就记下来，说不定就是好点子。',
+    '今天适合把话说开，坦诚会让关系更轻松。',
+    '能量满满的一天，去完成一件一直拖着的事吧。',
+    '今天适合安静独处一小会儿，充电后再出发。',
+    '小惊喜可能在今天出现，留意身边的小确幸。',
+  ];
+  const HORO_LOVE = [
+    '和 TA 相处特别舒服，一起做顿饭或散个步都是好选择。',
+    '今天很适合表达心意，一句「想你了」就能点亮彼此。',
+    '小摩擦容易发生，但一个拥抱就能化解。',
+    '你们之间的默契越来越深，不用说都懂。',
+    '今天适合聊聊未来，两个人一起规划很幸福。',
+    '平淡里藏着温柔，记得多夸夸 TA。',
+    '晚上可以一起看看月亮，讲讲心里话。',
+    'TA 今天比平时更依赖你，多陪陪 TA。',
+  ];
+  const HORO_CAREER = [
+    '专注力在线，重要的事放在上午做效率最高。',
+    '团队协作顺利，你的想法容易被认可。',
+    '今天适合整理和复盘，别急着往前冲。',
+    '多任务有点缠人，一件一件来会更稳。',
+    '灵感突现，创意工作者的高光日。',
+    '沟通上多听少说，会有意外收获。',
+    '适合学点新东西，为以后铺路。',
+    '任务不急的话，今天可以把细节打磨好。',
+  ];
+  const HORO_HEALTH = [
+    '多喝水，久坐记得起来活动一下。',
+    '今天适合散步或拉伸，身体会感谢你。',
+    '早点睡，比什么补品都有效。',
+    '注意肩颈，看屏幕久了眨眨眼。',
+    '吃点清淡的，给肠胃放个假。',
+    '情绪影响身体，今天保持好心情最重要。',
+    '适合来一场小小的运动，出汗更舒畅。',
+    '按时吃饭，别因为忙忘了照顾好自己。',
+  ];
+  const HORO_COLORS = ['珊瑚橙', '暖米', '薄荷绿', '天空蓝', '蜜桃粉', '薰衣草紫', '奶油黄', '燕麦棕'];
+
+  // 基于日期+星座的稳定伪随机（每天固定，次日自动更换）
+  function daySeed(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0) / 4294967295;
+  }
+  function dailyHoroscope(sign) {
+    const r = daySeed(todayKey() + ':' + sign);
+    const pick = (arr) => arr[Math.floor(r * arr.length)];
+    return {
+      overall: pick(HORO_OVERALL),
+      love: pick(HORO_LOVE),
+      career: pick(HORO_CAREER),
+      health: pick(HORO_HEALTH),
+      color: pick(HORO_COLORS),
+      num: 1 + Math.floor(r * 9),
+      stars: 2 + Math.round(r * 3), // 2-5 星
+    };
+  }
+
+  function renderHoroscope() {
+    const grid = $('#horoGrid');
+    if (!grid) return;
+    const d = new Date();
+    grid.innerHTML = ['gemini', 'libra'].map(sign => {
+      const h = HOROS[sign];
+      const f = dailyHoroscope(sign);
+      const stars = '★'.repeat(f.stars) + '<span class="off">' + '★'.repeat(5 - f.stars) + '</span>';
+      return `<div class="card pixel-border horo-card ${h.cls}">
+        <div class="horo-head">
+          <span class="horo-icon">${h.icon}</span>
+          <div>
+            <div class="horo-name">${h.name}<span class="horo-date">${h.dates}</span></div>
+            <div class="horo-tag">${h.tag}</div>
+          </div>
+          <div class="horo-stars">${stars}</div>
+        </div>
+        <div class="horo-row"><span class="hr-label">综合</span><span>${f.overall}</span></div>
+        <div class="horo-row"><span class="hr-label">爱情</span><span>${f.love}</span></div>
+        <div class="horo-row"><span class="hr-label">事业</span><span>${f.career}</span></div>
+        <div class="horo-row"><span class="hr-label">健康</span><span>${f.health}</span></div>
+        <div class="horo-foot">🍀 幸运色 ${f.color} · 幸运数字 ${f.num}</div>
+      </div>`;
+    }).join('') +
+    `<div class="horo-note">运势仅供今天参考 · ${d.getMonth() + 1}月${d.getDate()}日 · 明天自动更新 ✨</div>`;
+  }
+
+  // 祈福抽签：每日一次（温暖治愈签文库）
+  const FORTUNE_SIGNS = [
+    { level: '上上', cls: 'lv-upper', text: '时来运转，万事顺遂', tip: '今天适合迈出第一步，好运正站在你这边。' },
+    { level: '上上', cls: 'lv-upper', text: '心有阳光，遇见美好', tip: '主动一点，惊喜就会靠近；保持微笑，好运自然来。' },
+    { level: '上上', cls: 'lv-upper', text: '风起正当时', tip: '等待已久的转机在今天出现，大胆去做吧。' },
+    { level: '上上', cls: 'lv-upper', text: '良缘相守，情意更浓', tip: '两个人的心今天贴得很近，好好珍惜这一刻。' },
+    { level: '上', cls: 'lv-good', text: '稳步向前，心想事成', tip: '不急不躁，按自己的节奏走，结果不会差。' },
+    { level: '上', cls: 'lv-good', text: '贵人相助，小步快跑', tip: '今天会遇到帮你的那个人，记得说谢谢。' },
+    { level: '上', cls: 'lv-good', text: '平平淡淡，小确幸', tip: '没有大事，但处处都是小事里的甜。' },
+    { level: '上', cls: 'lv-good', text: '柳暗花明，转念即通', tip: '卡住的事换个角度看，答案就在眼前。' },
+    { level: '上', cls: 'lv-good', text: '心想之愿，正在路上', tip: '你惦记的那件事，正在朝你靠近。' },
+    { level: '上', cls: 'lv-good', text: '家和万事兴', tip: '今天适合一起做点小事，感情在细节里升温。' },
+    { level: '中', cls: 'lv-mid', text: '静待花开，不急于一时', tip: '耐心是今天的功课，慢一点反而更稳。' },
+    { level: '中', cls: 'lv-mid', text: '小憩一下，再出发', tip: '累了就休息，充电后再走更快。' },
+    { level: '中', cls: 'lv-mid', text: '以柔克刚', tip: '今天适合温和沟通，硬碰硬只会更累。' },
+    { level: '中', cls: 'lv-mid', text: '脚踏实地，步步为营', tip: '别想太远，把今天做好就是最好的安排。' },
+    { level: '中', cls: 'lv-mid', text: '随遇而安', tip: '计划赶不上变化时，顺其自然也是一种智慧。' },
+    { level: '中', cls: 'lv-mid', text: '三思而后行', tip: '遇到选择别急着定，睡一觉再做决定。' },
+    { level: '下', cls: 'lv-low', text: '小有波折，稳字当头', tip: '今天可能会有点小不顺，稳住心态就好，都会过去。' },
+    { level: '下', cls: 'lv-low', text: '宜静不宜动', tip: '今天适合休息和整理，不适合做重大决定。' },
+    { level: '下', cls: 'lv-low', text: '戒骄戒躁', tip: '越是着急越容易出错，深呼吸，放轻松。' },
+    { level: '下', cls: 'lv-low', text: '有舍才有得', tip: '放下一点执念，腾出空间给更好的可能。' },
+  ];
+
+  function renderFortune() {
+    const body = $('#fortuneBody');
+    if (!body) return;
+    const today = todayKey();
+    const st = state.settings.fortune || {};
+    if (st.date === today && st.sign) {
+      const s = st.sign;
+      body.innerHTML =
+        `<div class="fortune-bamboo">🎋</div>` +
+        `<div class="ft-sign ${s.cls}">${s.level}签</div>` +
+        `<div class="ft-text">${s.text}</div>` +
+        `<div class="ft-tip">${s.tip}</div>` +
+        `<div class="ft-date">今天已经祈福过了 · 明天再来抽新签</div>`;
+      return;
+    }
+    body.innerHTML =
+      `<div class="fortune-bamboo" id="fortuneBamboo">🎋</div>` +
+      `<div class="fortune-done">闭上眼默念一件心愿，摇一摇这支签～</div>` +
+      `<button class="pixel-btn primary fortune-pick" id="fortunePick">🙏 摇签</button>`;
+    const pick = $('#fortunePick');
+    if (pick) pick.addEventListener('click', drawFortune);
+  }
+
+  function drawFortune() {
+    const bamboo = $('#fortuneBamboo');
+    if (bamboo) bamboo.classList.add('shake');
+    setTimeout(() => {
+      const idx = Math.floor(Math.random() * FORTUNE_SIGNS.length);
+      const s = FORTUNE_SIGNS[idx];
+      state.settings.fortune = { date: todayKey(), sign: { level: s.level, cls: s.cls, text: s.text, tip: s.tip } };
+      save({ silent: true });
+      renderFortune();
+    }, 700);
+  }
 
   // ==========================================
   // 7. 健身

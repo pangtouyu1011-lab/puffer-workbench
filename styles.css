@@ -1427,3 +1427,66 @@ body {
 /* modal 上浮动画 */
 .modal { animation: modalUp .28s cubic-bezier(.2,.8,.3,1) backwards; }
 @keyframes modalUp { from { opacity: 0; transform: translateY(26px) scale(.97); } to { opacity: 1; transform: none; } }
+/* ===== 待办日历合并 ===== */
+#todoDayBar { margin: 14px 0 12px; }
+.todo-day-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 14px;
+  background: linear-gradient(135deg, #FFF3E6, #FFE9D8);
+  border: 1px solid #F0D9C2;
+}
+.tdb-label { font-family: var(--font-head); font-size: 15px; font-weight: 700; color: var(--primary-deep); margin-right: auto; }
+.cal-bottom { display: flex; justify-content: center; margin-top: 12px; }
+.cal-top .cal-title { font-size: 16px; }
+
+/* ===== 每日星座 ===== */
+.horo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.horo-card { padding: 18px; }
+.horo-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.horo-icon {
+  width: 52px; height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 28px; border-radius: 14px; background: var(--cream); border: 1px solid var(--line);
+}
+.horo-card.sign-gemini .horo-icon { background: #E8F1FB; border-color: #C4D9F0; }
+.horo-card.sign-libra  .horo-icon { background: #FDEBF1; border-color: #F2C3D3; }
+.horo-name { font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--ink); }
+.horo-date { font-size: 11px; color: var(--muted); font-family: var(--font-body); font-weight: 500; margin-left: 4px; }
+.horo-tag { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.horo-stars { margin-left: auto; font-size: 14px; letter-spacing: 1px; color: #F2B45C; }
+.horo-stars .off { color: #E5D9C9; }
+.horo-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px dashed var(--line); font-size: 13.5px; line-height: 1.65; color: var(--ink-soft); }
+.horo-row:first-of-type { border-top: none; }
+.hr-label {
+  flex-shrink: 0; width: 34px; text-align: center; font-size: 11px; font-weight: 700; color: var(--primary-deep);
+  background: #FFEFE2; border-radius: 999px; padding: 2px 0;
+}
+.horo-foot { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.horo-note { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--ink-soft); }
+@media (max-width: 640px) {
+  .horo-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 每日祈福抽签 ===== */
+.fortune-card { text-align: center; }
+.fortune-body { padding: 20px 16px; min-height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.fortune-bamboo { font-size: 64px; line-height: 1; }
+.fortune-pick { margin-top: 4px; }
+.fortune-done { font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; max-width: 420px; }
+.ft-sign {
+  display: inline-block; padding: 4px 14px; border-radius: 999px; font-size: 14px; font-weight: 700;
+}
+.ft-sign.lv-upper { background: linear-gradient(135deg,#FFF3D6,#FFDF9E); color:#8A5A00; border:1px solid #F0C768; }
+.ft-sign.lv-good  { background: linear-gradient(135deg,#FFEFE2,#FFD9BC); color:#C0561F; border:1px solid #F0B98F; }
+.ft-sign.lv-mid   { background: linear-gradient(135deg,#F0F6EC,#DCEBD3); color:#4C7A38; border:1px solid #BCD6AB; }
+.ft-sign.lv-low   { background: linear-gradient(135deg,#EFEFEF,#DDDDDD); color:#6B6B6B; border:1px solid #CCCCCC; }
+.ft-text { font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--ink); line-height: 1.6; max-width: 420px; }
+.ft-tip { font-size: 13px; color: var(--ink-soft); line-height: 1.7; max-width: 420px; }
+.ft-date { font-size: 11.5px; color: var(--muted); }
+@keyframes fortuneShake {
+  0%,100% { transform: rotate(0); }
+  20% { transform: rotate(-12deg) translateX(-2px); }
+  40% { transform: rotate(10deg) translateX(2px); }
+  60% { transform: rotate(-8deg); }
+  80% { transform: rotate(6deg); }
+}
+.fortune-bamboo.shake { animation: fortuneShake .7s ease; }

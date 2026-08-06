@@ -1,7 +1,7 @@
 {
-  "name": "孙大炮 & 童大侠 河胆工作台",
-  "short_name": "河胆工作台",
-  "description": "情侣共享工作台：待办、健身、纪念日、留言、吃什么",
+  "name": "大童小孙之家",
+  "short_name": "大童小孙之家",
+  "description": "大童 & 小孙的共享小窝：待办日历、健身、留言、心愿、星座、吃什么",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

@@ -4,17 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#E56B3A" />
-  <title>河豚工作台 · PufferWork</title>
+  <title>大童小孙之家</title>
   <link rel="icon" type="image/png" href="assets/puffer.png" />
   <link rel="apple-touch-icon" href="assets/puffer-180.png" />
   <link rel="manifest" href="site.webmanifest" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="河豚工作台" />
+  <meta name="apple-mobile-web-app-title" content="大童小孙之家" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1785925472042" />
+  <link rel="stylesheet" href="styles.css?v=1785985799662" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -242,8 +242,8 @@
           <img src="assets/puffer.png" alt="puffer" class="puffer-logo" />
         </div>
         <div class="brand">
-          <h1 class="brand-title">PufferWork</h1>
-          <p class="brand-sub" id="brandSub">河豚个人工作台</p>
+          <h1 class="brand-title">大童小孙之家</h1>
+          <p class="brand-sub" id="brandSub">两个人的河豚小窝</p>
         </div>
       </div>
       <div class="header-right">
@@ -265,16 +265,16 @@
           <span class="nav-label">仪表板</span>
         </button>
         <button class="nav-item" data-page="todo">
-          <span class="nav-icon">✅</span>
-          <span class="nav-label">待办</span>
+          <span class="nav-icon">📆</span>
+          <span class="nav-label">待办日历</span>
         </button>
         <button class="nav-item" data-page="fitness">
           <span class="nav-icon">💪</span>
           <span class="nav-label">健身</span>
         </button>
-        <button class="nav-item" data-page="calendar">
-          <span class="nav-icon">📅</span>
-          <span class="nav-label">日历</span>
+        <button class="nav-item" data-page="horoscope">
+          <span class="nav-icon">✨</span>
+          <span class="nav-label">星座</span>
         </button>
         <button class="nav-item" data-page="messages">
           <span class="nav-icon">💬</span>
@@ -400,12 +400,12 @@
         </div>
       </section>
 
-      <!-- 待办 -->
+      <!-- 待办日历（待办 + 月历合并） -->
       <section class="page" id="page-todo">
         <div class="page-head">
           <div>
-            <h2 class="page-title">待办事项</h2>
-            <p class="page-sub">把要做的事清空，把脑袋清空</p>
+            <h2 class="page-title">待办日历</h2>
+            <p class="page-sub">点日历选日子，下方就是那天的待办</p>
           </div>
           <div class="page-actions">
             <div class="seg">
@@ -417,30 +417,40 @@
             <button class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办到 iOS 日历">📅 导出日历</button>
           </div>
         </div>
+        <!-- 月历（点击日期 → 下方列表只显示该日待办） -->
+        <div class="card pixel-border cal-card">
+          <div class="cal-top">
+            <button class="pixel-btn ghost" id="calPrev">‹ 上月</button>
+            <div class="cal-title" id="calTitle">--</div>
+            <button class="pixel-btn ghost" id="calNext">下月 ›</button>
+          </div>
+          <div class="cal-weekdays">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+          <div class="cal-bottom">
+            <button class="pixel-btn" id="calToday">📍 回到今天</button>
+          </div>
+        </div>
+        <!-- 选中日期提示条（点击日历某天后出现） -->
+        <div id="todoDayBar" hidden></div>
         <div class="card pixel-border">
           <ul class="todo-list" id="todoList"></ul>
         </div>
       </section>
 
-      <!-- 共同日历 -->
-      <section class="page" id="page-calendar">
+      <!-- 星座运势 + 祈福抽签 -->
+      <section class="page" id="page-horoscope">
         <div class="page-head">
           <div>
-            <h2 class="page-title">📅 共同日历</h2>
-            <p class="page-sub">待办与纪念日，一目了然</p>
-          </div>
-          <div class="page-actions">
-            <button class="pixel-btn ghost" id="calPrev">‹ 上月</button>
-            <button class="pixel-btn" id="calToday">今天</button>
-            <button class="pixel-btn ghost" id="calNext">下月 ›</button>
+            <h2 class="page-title">✨ 每日星座</h2>
+            <p class="page-sub">双子座 × 天秤座 · 今天的运势与一点小幸运</p>
           </div>
         </div>
-        <div class="card pixel-border cal-card">
-          <div class="cal-title" id="calTitle">--</div>
-          <div class="cal-weekdays">
-            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
-          </div>
-          <div class="cal-grid" id="calGrid"></div>
+        <div class="horo-grid" id="horoGrid"></div>
+        <div class="card pixel-border fortune-card">
+          <div class="card-head"><h3>🙏 每日祈福 · 抽一支签</h3></div>
+          <div class="fortune-body" id="fortuneBody"></div>
         </div>
       </section>
 
@@ -566,13 +576,13 @@
       <span>🏠</span><small>首页</small>
     </button>
     <button class="bn-item" data-page="todo">
-      <span>✅</span><small>待办</small>
+      <span>📆</span><small>待办日历</small>
     </button>
     <button class="bn-item" data-page="fitness">
       <span>💪</span><small>健身</small>
     </button>
-    <button class="bn-item" data-page="calendar">
-      <span>📅</span><small>日历</small>
+    <button class="bn-item" data-page="horoscope">
+      <span>✨</span><small>星座</small>
     </button>
     <button class="bn-item" data-page="messages">
       <span>💬</span><small>留言</small>
@@ -602,6 +612,6 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=1785925472042"></script>
+  <script src="app.js?v=1785985799662"></script>
 </body>
 </html>
