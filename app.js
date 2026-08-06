@@ -2142,7 +2142,8 @@
   // Keep sync payloads bounded: remove old tombstones and cap growing collections.
   const ROOM_TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
   const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, meals: 300, wishes: 200 };
-  const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
+  // 图片会以压缩后的 data URL 随相册同步，8MB 足够日常使用，同时仍能拦截异常膨胀。
+  const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
   function roomItemTime(item) { return Number(item && (item.updatedAt || item.createdAt)) || 0; }
   function compactRoomArray(arr, limit, now = Date.now()) {
     const kept = (Array.isArray(arr) ? arr : []).filter((item) => {
@@ -2330,7 +2331,7 @@
   async function roomPut(url, id, pass, data, dataHash) {
     const payloadBytes = new TextEncoder().encode(JSON.stringify(data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) {
-      throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
+      throw new Error('同步数据超过 8MB 安全上限，请清理旧图片或历史记录后重试');
     }
     const r = state.settings.room;
     if (r.backend === 'supabase') {
@@ -2350,7 +2351,7 @@
         if (body.error === 'forbidden') throw new Error('口令错误');
         if (body.error === 'conflict') throw new Error('版本冲突（请稍后重试）');
         if (body.error === 'data_hash_mismatch') throw new Error('上传内容校验失败，请重试');
-        if (body.error === 'payload_too_large') throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
+        if (body.error === 'payload_too_large') throw new Error('同步数据超过 8MB 安全上限，请清理旧图片或历史记录后重试');
         throw new Error('HTTP ' + res.status);
       }
       if (body.dataHash && body.dataHash !== dataHash) throw new Error('服务器确认内容摘要不一致');
@@ -2365,7 +2366,7 @@
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
-      if (e.error === 'payload_too_large') throw new Error('同步数据过大，已达到安全上限，请清理旧图片或历史记录后重试');
+      if (e.error === 'payload_too_large') throw new Error('同步数据超过 8MB 安全上限，请清理旧图片或历史记录后重试');
       throw new Error('HTTP ' + res.status);
     }
     return res.json();

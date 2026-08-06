@@ -13,7 +13,7 @@ const cors = {
 };
 
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
-const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
+const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
 
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), {

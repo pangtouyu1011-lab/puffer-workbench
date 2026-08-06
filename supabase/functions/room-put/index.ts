@@ -13,7 +13,7 @@ const CORS = {
 };
 
 const PBKDF2_ITER = 100000;
-const MAX_ROOM_PAYLOAD_BYTES = 850 * 1024;
+const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
 
 const hits = new Map();
 function rateLimit(ip: string): boolean {
