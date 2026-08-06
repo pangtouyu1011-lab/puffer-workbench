@@ -352,6 +352,7 @@
   }
 
   function goPage(name) {
+    document.body.dataset.page = name;
     $$('.page').forEach(p => p.classList.remove('active'));
     const target = $(`#page-${name}`);
     if (target) target.classList.add('active');
@@ -1700,8 +1701,10 @@
                 <span class="pill">${escapeHtml(weekName(d2.getDay()))}</span>
                 ${t.weight ? `<span class="pill">重量: ${escapeHtml(t.weight)}</span>` : ''}
                 ${t.duration ? `<span class="pill">时长: ${escapeHtml(t.duration)}</span>` : ''}
-                <button class="pill" data-act="edit-train" style="cursor:pointer;background:var(--puffer-cream);color:var(--border);border:2px solid var(--border);">✎ 编辑</button>
-                <button class="pill del-btn" data-act="del-train" style="cursor:pointer;background:var(--puffer-pink-deep);color:#fff;border:2px solid var(--border);">删除</button>
+                <span class="train-actions">
+                  <button class="pill" data-act="edit-train">✎ 编辑</button>
+                  <button class="pill del-btn" data-act="del-train">删除</button>
+                </span>
               </div>
             </div>
           </li>

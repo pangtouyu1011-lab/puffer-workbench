@@ -739,8 +739,9 @@ body {
 .todo-check:hover { border-color: var(--primary); transform: scale(1.06); }
 .todo-check.done { background: var(--primary); border-color: var(--primary); color: #fff; }
 .todo-check.done::after { content: '✓'; font-weight: 700; }
-.ti-text { flex: 1; font-size: 14.5px; }
-.ti-meta { display: flex; gap: 6px; align-items: center; }
+.ti-main { min-width: 0; flex: 1; }
+.ti-text { overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.45; }
+.ti-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .ti-prio {
   font-family: var(--font-body);
   font-size: 11px;
@@ -858,14 +859,17 @@ body {
   color: var(--ink);
 }
 .train-content { font-size: 14px; color: var(--ink-soft); margin-top: 6px; white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
-.train-foot { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+.train-foot { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
 .train-foot .pill {
   font-size: 12px; font-weight: 600; padding: 3px 10px; border: 1px solid var(--line);
   background: var(--cream);
   border-radius: 999px;
   color: var(--ink-soft);
 }
-.train-foot .del-btn { margin-left: auto; }
+.train-actions { display: inline-flex; gap: 6px; margin-left: auto; }
+.train-actions .pill { cursor: pointer; }
+.train-actions .pill[data-act="edit-train"] { background: var(--primary-soft); color: var(--primary-deep); border-color: var(--primary-light); }
+.train-actions .del-btn { background: var(--pink-deep); color: #fff; border-color: transparent; }
 .train-empty { text-align: center; padding: 36px 10px; color: var(--muted); }
 .day-nav { display: flex; gap: 6px; align-items: center; }
 .day-nav .pill { min-width: 34px; padding: 6px 12px; cursor: pointer; border-radius: 10px; font-size: 14px; font-weight: 700; }
@@ -1243,8 +1247,10 @@ body {
   .seg-btn { padding: 6px 11px; font-size: 12px; }
   .mascot-hero { width: 100%; }
   .mascot-bubble { max-width: none; }
-  .train-item { flex-direction: column; }
-  .train-date { width: 100%; }
+  .train-item { flex-direction: row; align-items: flex-start; gap: 10px; padding: 12px; }
+  .train-date { width: 54px; flex: 0 0 54px; padding: 7px 3px; }
+  .train-content { font-size: 13px; line-height: 1.55; }
+  .train-actions { width: 100%; justify-content: flex-end; margin-left: 0; }
 }
 
 /* ============= 手机端操作区：按钮不挤压、不溢出 ============= */
@@ -1268,6 +1274,17 @@ body {
   .card-head h3 { min-width: 0; line-height: 1.35; }
   .card-head .link-btn { flex-shrink: 0; }
   .day-nav .pill { min-width: 42px; min-height: 38px; }
+  body[data-page]:not([data-page="dashboard"]) .music-float { display: none; }
+  #page-messages .msg-list { min-height: 260px; max-height: min(52vh, 440px); padding-inline: 2px; }
+  #page-messages .msg-item { max-width: 88%; padding: 10px 12px; }
+  .msg-meta { flex-wrap: wrap; gap: 4px 7px; }
+  #page-messages .msg-text { font-size: 15px; line-height: 1.55; }
+  .msg-del { width: 28px; height: 28px; top: 2px; right: 2px; }
+  #page-messages .msg-compose { display: grid !important; padding-top: 12px; }
+  .msg-compose textarea { min-height: 76px; width: 100%; }
+  .todo-item { align-items: flex-start; gap: 10px; padding: 11px 12px; }
+  .todo-check { width: 26px; height: 26px; margin-top: 1px; }
+  .ti-actions button { width: 36px; height: 36px; }
 }
 
 @media (max-width: 380px) {
