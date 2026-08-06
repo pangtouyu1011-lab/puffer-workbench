@@ -162,6 +162,10 @@
   }
   bindBgParallax();
 
+  const DEFAULT_WORKER_URL = 'https://sync.20051011.xyz';
+  const DEFAULT_SUPABASE_URL = 'https://chfczfrkgndgudcxoump.supabase.co';
+  const DEFAULT_SUPABASE_ANON = 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq';
+
   const state = {
     todos: [],
     fitnessPlan: { ...defaultPlan },
@@ -178,7 +182,7 @@
       city: '杭州',
       syncCode: '',
       cloudUrl: '',  // 可选：自建云同步 API
-      room: { backend: 'supabase', url: 'https://chfczfrkgndgudcxoump.supabase.co', anon: 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 },
+      room: { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 },
     }
   };
 
@@ -216,13 +220,18 @@
       }
       if (!state.fortune) state.fortune = null;
       if (state.settings.lastClean === undefined) state.settings.lastClean = 0;
-        if (!state.settings.room) state.settings.room = { backend: 'supabase', url: 'https://chfczfrkgndgudcxoump.supabase.co', anon: 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
+        if (!state.settings.room) state.settings.room = { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
         else {
           const rm = state.settings.room;
-          // 从旧的 Cloudflare 默认地址迁移到 Supabase（workers.dev 在大陆被墙）
-          if (rm.url === 'https://puffer-share.pangtouyu1011.workers.dev') { rm.url = ''; rm.backend = 'supabase'; }
-          else if (!rm.backend) rm.backend = (rm.url && rm.url.includes('workers.dev')) ? 'worker' : 'supabase';
-          if (rm.anon === undefined) rm.anon = 'sb_publishable_tOeCrvhq0WXTIRzUpaQAuQ_NrnmRwQq';
+          // 旧版使用 Cloudflare Worker；将旧默认 Worker 和当前默认 Supabase 房间统一切到同一 Worker。
+          const isLegacyWorker = rm.url === 'https://puffer-share.pangtouyu1011.workers.dev';
+          const isDefaultSupabase = rm.backend === 'supabase' && rm.url === DEFAULT_SUPABASE_URL;
+          if (isLegacyWorker || isDefaultSupabase) {
+            rm.backend = 'worker';
+            rm.url = DEFAULT_WORKER_URL;
+            rm.anon = '';
+          } else if (!rm.backend) rm.backend = (rm.url && (rm.url.includes('workers.dev') || rm.url.includes('20051011.xyz'))) ? 'worker' : 'supabase';
+          if (rm.anon === undefined) rm.anon = rm.backend === 'supabase' ? DEFAULT_SUPABASE_ANON : '';
         }
         // 清理历史重复的默认菜单（按菜名去重，软删除多余的）
         const removed = dedupeMeals();
@@ -1802,11 +1811,11 @@
         </div>
         <div class="form-row" style="margin-top:20px;border-top:2px dashed var(--border);padding-top:14px;">
           <p class="muted">🤝 <strong>共享房间（两人协作）</strong>：两人填入同一个「房间 ID + 口令」，即可实时同步待办 / 健身 / 素材 / 推文 / AI 视频。删除也会同步，不会互相覆盖。</p>
-          <div class="file-hint">后端支持 <strong>Supabase</strong>（推荐，国内可访问，免费）或 Cloudflare Workers（workers.dev 在大陆常被墙，需自备域名）。加入房间只连接已有房间；首次使用请点击“创建新房间”。</div>
+          <div class="file-hint">当前房间同步使用 <strong>Cloudflare Workers + KV</strong>；Supabase 仅作为备用后端。加入房间只连接已有房间；首次使用请点击“创建新房间”。</div>
           <div class="row-2" style="margin-top:8px;">
             <select id="roomBackend" class="pixel-input">
-              <option value="supabase" ${state.settings.room.backend !== 'worker' ? 'selected' : ''}>Supabase（推荐）</option>
-              <option value="worker" ${state.settings.room.backend === 'worker' ? 'selected' : ''}>Cloudflare Workers</option>
+              <option value="supabase" ${state.settings.room.backend === 'worker' ? '' : 'selected'}>Supabase（备用）</option>
+              <option value="worker" ${state.settings.room.backend === 'worker' ? 'selected' : ''}>Cloudflare Workers（当前）</option>
             </select>
             <input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || '')}" placeholder="${state.settings.room.backend === 'worker' ? '房间地址，如 https://puffer-share.xxx.workers.dev' : '项目 URL，如 https://xxxx.supabase.co'}" />
           </div>
@@ -2191,7 +2200,7 @@
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pass, data })
-    });
+    }, SYNC_UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
