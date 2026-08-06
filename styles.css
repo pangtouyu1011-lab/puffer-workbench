@@ -1528,5 +1528,5 @@ body {
 @keyframes musicRecordSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .music-record-groove { animation: none; } }
 @media (max-width: 900px) { .app { min-width: 0; } .content { min-width: 0; overflow: hidden; } .page { min-width: 0; } }
-@media (max-width: 640px) { .music-float { right: 4px; top: 42%; bottom: auto; } .music-float-panel { bottom: 80px; max-height: min(70vh, 560px); overflow: auto; } }
+@media (max-width: 640px) { .music-float { right: 10px; top: auto; bottom: calc(88px + env(safe-area-inset-bottom)); } .music-float-panel { bottom: 76px; max-height: min(70vh, 560px); overflow: auto; } }
 @media (max-width: 420px) { .app { padding-left: 8px; padding-right: 8px; } .content { padding-left: 2px; padding-right: 2px; } .card { border-radius: 15px; } .music-record-toggle { width: 68px; height: 68px; } .music-float-panel { right: -2px; width: calc(100vw - 20px); padding: 14px; } .music-track { grid-template-columns: 36px 1fr auto; gap: 8px; padding: 9px; } .music-track-cover { width: 36px; height: 36px; } }
