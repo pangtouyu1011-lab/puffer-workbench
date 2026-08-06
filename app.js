@@ -2050,8 +2050,9 @@
       const tEx = ex.updatedAt || ex.createdAt || 0;
       if (tIt > tEx) map.set(it.id, it);
     };
-    (remoteArr || []).forEach(put);
+    // 先放本地版本：时间戳相同时保留本地状态；远端只有在明确更新时才覆盖。
     (localArr || []).forEach(put);
+    (remoteArr || []).forEach(put);
     return [...map.values()];
   }
 
