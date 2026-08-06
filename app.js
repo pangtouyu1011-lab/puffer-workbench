@@ -1224,7 +1224,9 @@
     const act = e.target.dataset.act;
     if (act === 'toggle') {
       const t = state.todos.find(x => x.id === id);
+      if (!t) return;
       t.done = !t.done;
+      t.updatedAt = Date.now();
       save(); renderTodo();
     } else if (act === 'edit') {
       openTodoModal(id);
@@ -2028,6 +2030,7 @@
       meals: state.meals,
       wishes: state.wishes,
       water: state.water,
+      fortune: state.fortune,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
       syncedAt: Date.now()
@@ -2096,6 +2099,10 @@
     const l = (local && local.by) ? local : null;
     const r = (remote && remote.by) ? remote : null;
     if (!l && !r) return local || remote || null;
+    const today = todayKey();
+    const dates = [l && l.date, r && r.date].filter(Boolean);
+    const date = dates.includes(today) ? today : (dates.sort().pop() || today);
+    const sameDay = (entry) => entry && entry.date === date;
     const pick = (a, b) => {
       if (!a && !b) return null;
       if (!a) return b;
@@ -2103,10 +2110,10 @@
       return ((a.ts || 0) >= (b.ts || 0)) ? a : b;
     };
     return {
-      date: (r && r.date) || (l && l.date) || todayKey(),
+      date,
       by: {
-        a: pick(l && l.by.a, r && r.by.a),
-        b: pick(l && l.by.b, r && r.by.b),
+        a: pick(sameDay(l) && l.by.a, sameDay(r) && r.by.a),
+        b: pick(sameDay(l) && l.by.b, sameDay(r) && r.by.b),
       },
     };
   }
