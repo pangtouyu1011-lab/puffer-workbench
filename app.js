@@ -106,7 +106,7 @@
     { title:'Melody', artist:'陶喆', id:'', tags:['morning','noon','cloud','soft','warm'] },
     { title:'流沙', artist:'陶喆', id:'', tags:['night','rain','soft','slow'] },
     { title:'乌云中', artist:'艾热AIR', id:'', tags:['night','rain','cloud','tired'] },
-    { title:'同类', artist:'孙燕姿', id:'535739349', tags:['night','rain','tired','slow'] },
+    { title:'同类', artist:'孙燕姿', id:'255921849', tags:['night','rain','tired','slow'] },
     { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] }
   ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
     { title:'雨瘾', artist:'网易云歌单情绪样本', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
