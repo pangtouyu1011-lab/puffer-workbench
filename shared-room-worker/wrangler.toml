@@ -2,6 +2,10 @@ name = "puffer-share"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 
+routes = [
+  { pattern = "sync.20051011.xyz/*", zone_name = "20051011.xyz" }
+]
+
 [[kv_namespaces]]
 binding = "BENCH"
 id = "773e10e804bb4c0d9c9b24273b37e258"

@@ -2394,7 +2394,9 @@
       return { ok: true, data: body.data, rev: body.rev, updatedAt: body.updatedAt };
     }
     // Cloudflare Workers 后端
-    const res = await syncFetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
+    const base = url.replace(/\/$/, ''); const v1Url = `${base}/api/v1/rooms/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`;
+    let res = await syncFetch(v1Url);
+    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
@@ -2434,11 +2436,13 @@
       return { ok: true, rev: body.rev, updatedAt: Date.now() };
     }
     // Cloudflare Workers 后端
-    const res = await syncFetch(`${url.replace(/\/$/, '')}/api/${encodeURIComponent(id)}`, {
+    const base = url.replace(/\/$/, ''); const v1Url = `${base}/api/v1/rooms/${encodeURIComponent(id)}`;
+    let res = await syncFetch(v1Url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pass, data })
+      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, data })
     }, SYNC_UPLOAD_TIMEOUT_MS);
+    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, data }) }, SYNC_UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');

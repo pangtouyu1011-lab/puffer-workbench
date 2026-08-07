@@ -33,10 +33,13 @@ async function handle(request) {
     return json({ ok: true }, 200, cors);
   }
 
-  const m = url.pathname.match(/^\/api\/([^/]+)$/);
+  const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
+  const legacy = url.pathname.match(/^\/api\/([^/]+)$/);
+  const m = v1 || legacy;
   if (!m) return json({ error: 'not_found' }, 404, cors);
 
   const room = decodeURIComponent(m[1]);
+  const isV1 = !!v1;
   if (!room || room.length > 64) return json({ error: 'bad_room' }, 400, cors);
   const dataKey = 'room:' + room;
   const metaKey = 'meta:' + room;
@@ -48,7 +51,7 @@ async function handle(request) {
     if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
     const rec = await BENCH.get(dataKey, { type: 'json' });
     return json(
-      { ok: true, data: rec ? rec.data : null, rev: meta.rev, updatedAt: meta.updatedAt },
+      { ok: true, schemaVersion: 1, roomId: room, data: rec ? rec.data : null, rev: meta.rev, updatedAt: meta.updatedAt },
       200, cors
     );
   }
@@ -57,6 +60,7 @@ async function handle(request) {
     let body;
     try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
     const pass = (body && body.pass) || '';
+    if (isV1 && body && body.schemaVersion !== undefined && body.schemaVersion !== 1) return json({ error: 'unsupported_schema' }, 400, cors);
     if (!body || body.data === undefined) return json({ error: 'data_required' }, 400, cors);
     const payloadBytes = new TextEncoder().encode(JSON.stringify(body.data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
@@ -70,7 +74,7 @@ async function handle(request) {
     const now = Date.now();
     await BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
     await BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
-    return json({ ok: true, rev, updatedAt: now }, 200, cors);
+    return json({ ok: true, schemaVersion: 1, roomId: room, rev, updatedAt: now }, 200, cors);
   }
 
   return json({ error: 'method_not_allowed' }, 405, cors);
