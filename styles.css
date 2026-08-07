@@ -1625,6 +1625,7 @@ body {
 .music-track-source { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 999px; color: #9E4F58; background: #FFF0EA; font-size: 9px; }
 .music-lyric { margin-top: 5px; color: #8E6A62; font-size: 11px; line-height: 1.45; font-style: italic; }
 .music-feedback { display: flex; gap: 5px; margin-top: 6px; }
+.music-feedback-label { margin-top: 8px; color: var(--muted); font-size: 10px; }
 .music-feedback button { border: 0; padding: 2px 5px; border-radius: 8px; background: transparent; cursor: pointer; opacity: .55; }
 .music-feedback button.active, .music-feedback button:hover { opacity: 1; background: #fff0ea; }
 .music-track a { color: #9E4F58; font-size: 18px; text-decoration: none; }
