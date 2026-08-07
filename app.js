@@ -87,7 +87,7 @@
     { title:'保留', artist:'郭顶', id:'1443638411', tags:['night','rain','cloud','soft','tired','workweek'] },
     { title:'轨迹', artist:'周杰伦', id:'536108122', tags:['night','rain','tired','slow','workweek'] },
     { title:'Letting Go', artist:'蔡健雅', id:'672994663', tags:['night','rain','tired','slow','cloud'] },
-    { title:'心的距离', artist:'陈奕迅', id:'1539122249', tags:['night','rain','tired','slow'] },
+    { title:'心的距离', artist:'陈奕迅', id:'1442430114', tags:['night','rain','tired','slow'] },
     { title:'是但求其爱', artist:'陈奕迅', id:'1539122249', tags:['night','rain','cloud','soft','slow'] },
     { title:'i love you', artist:'Billie Eilish', id:'', tags:['night','rain','tired','soft','slow'] },
     { title:'夏日漱石', artist:'橘子海', id:'1460348282', tags:['morning','noon','sun','clear','weekend','happy'] },
@@ -1887,9 +1887,24 @@
     updateSyncPill();
   }
 
+  function safeTransferState() {
+    const backup = JSON.parse(JSON.stringify(state));
+    const room = backup.settings && backup.settings.room;
+    if (room) {
+      room.pass = '';
+      room.anon = '';
+      room.joined = false;
+    }
+    if (backup.settings) {
+      backup.settings.cloudUrl = '';
+      backup.settings.syncCode = '';
+    }
+    return backup;
+  }
+
   // 导出 JSON
   function exportJSON() {
-    const data = JSON.stringify(state, null, 2);
+    const data = JSON.stringify(safeTransferState(), null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1897,7 +1912,7 @@
     a.download = `pufferwork-backup-${todayKey()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast('已导出备份文件');
+    toast('已导出备份文件（房间口令已脱敏）');
   }
 
   function importJSON() {
@@ -2027,7 +2042,7 @@
 
   function generateQR() {
     // 把数据压缩为最小可恢复格式
-    const data = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+    const data = btoa(unescape(encodeURIComponent(JSON.stringify(safeTransferState()))));
     const url = location.origin + location.pathname + '#sync=' + data;
     $('#qrArea').style.display = 'block';
     $('#qrCanvas').innerHTML = '';
@@ -2160,14 +2175,9 @@
     const cutoff = new Date(now - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     return Object.fromEntries(Object.entries(water && typeof water === 'object' ? water : {}).filter(([date]) => date >= cutoff));
   }
-  function compactRoomState(now = Date.now()) {
-    state.todos = compactRoomArray(state.todos, ROOM_ARRAY_LIMITS.todos, now);
-    state.trainings = compactRoomArray(state.trainings, ROOM_ARRAY_LIMITS.trainings, now);
-    state.messages = compactRoomArray(state.messages, ROOM_ARRAY_LIMITS.messages, now);
-    state.gallery = compactRoomArray(state.gallery, ROOM_ARRAY_LIMITS.gallery, now);
-    state.meals = compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now);
-    state.wishes = compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now);
-    state.water = compactRoomWater(state.water, now);
+  function compactRoomState() {
+    // 本地状态不做物理截断，避免加载或定期清理时静默丢失历史数据。
+    // 仅在 serializeRoom() 构造同步 payload 时做有界压缩。
   }
 
   // 仅同步数据部分，不同步个人设置（ownerName 等各自保留）
@@ -2640,7 +2650,7 @@
       const parts = [];
       if (delTodos) parts.push(delTodos + ' 条旧待办');
       if (delMsgs) parts.push(delMsgs + ' 条旧留言');
-      toast('🧹 每周清理：已自动删除 ' + parts.join('、') + '（7 天前）', 'info');
+      toast('🧹 每周清理：已软删除 ' + parts.join('、') + '（7 天前）', 'info');
     }
   }
 
