@@ -502,20 +502,20 @@
   }
   function musicSongKey(song) { return (song.source || '') + ':' + (song.id || song.artist + ':' + song.title); }
   function musicSettings() { state.settings = state.settings || {}; state.settings._musicHistory = Array.isArray(state.settings._musicHistory) ? state.settings._musicHistory : []; state.settings._musicLikes = state.settings._musicLikes || {}; return state.settings; }
-  function pickMusicFor(part, excluded) {
+  function pickMusicFor(part, excluded, sourceFilter) {
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
     const wanted = new Set([part, ...weather.tags, ...week.tags]);
     const styleWanted = new Set(NETEASE_PROFILE_TAGS);
     const seed = todayKey() + part + String(state._weather && state._weather.code);
     const settings = musicSettings(); const recent = new Set(settings._musicHistory.slice(-12).map(item => item.key)); const likes = settings._musicLikes;
-    const ranked = MUSIC_LIBRARY.map((song, index) => { let score = 0; const key = musicSongKey(song); song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; if (recent.has(key)) score -= 8; if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
+    const ranked = MUSIC_LIBRARY.filter(song => !sourceFilter || song.source === sourceFilter).map((song, index) => { let score = 0; const key = musicSongKey(song); song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; if (recent.has(key)) score -= 8; if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
     const chosen = ranked.find(item => !excluded || !excluded.has(item.song.title)) || ranked[0];
     return chosen ? [chosen.song] : [];
   }
-  function getMusicSlotSong(part) {
-    const settings = musicSettings(); const slotKey = todayKey() + ':' + part; const rejected = new Set(settings._musicRejectedForSlot || []);
+  function getMusicSlotSong(part, sourceFilter) {
+    const settings = musicSettings(); const slotKey = todayKey() + ':' + part + ':' + (sourceFilter || 'all'); const rejected = new Set(settings._musicRejectedForSlot || []);
     if (settings._musicSlotKey === slotKey && settings._musicSlotSongKey && !rejected.has(settings._musicSlotSongKey)) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKey); if (cached) return cached; }
-    const song = pickMusicFor(part, new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)))[0]; if (!song) return null;
+    const song = pickMusicFor(part, new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)), sourceFilter)[0]; if (!song) return null;
     settings._musicSlotKey = slotKey; settings._musicSlotSongKey = musicSongKey(song); settings._musicRejectedForSlot = [];
     settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: settings._musicSlotSongKey, title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); save({ silent: true }); return song;
   }
@@ -527,11 +527,9 @@
     if (title) title.textContent = '今天听什么';
     if (intro) intro.textContent = MUSIC_DAYPARTS[currentMusicDaypart()].greeting;
     if (reason) reason.textContent = week.label + ' · ' + weather.reason;
-    const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part]; const song = getMusicSlotSong(part);
-    if (!song) { list.innerHTML = ''; return; }
-    const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
-    const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key];
-    list.innerHTML = '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback-label">喜欢这首歌吗？</div><div class="music-feedback"><button data-music-feedback="like" data-music-key="' + escapeHtml(key) + '" class="' + (liked === 1 ? 'active' : '') + '" aria-label="喜欢">👍 喜欢</button><button data-music-feedback="dislike" data-music-key="' + escapeHtml(key) + '" class="' + (liked === -1 ? 'active' : '') + '" aria-label="不喜欢">👎 换一首</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
+    const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part];
+    const renderSong = (song, label) => { if (!song) return ''; const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完'; const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key]; return '<div class="music-person-label">' + label + '</div><article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback-label">喜欢这首歌吗？</div><div class="music-feedback"><button data-music-feedback="like" data-music-key="' + escapeHtml(key) + '" class="' + (liked === 1 ? 'active' : '') + '">👍 喜欢</button><button data-music-feedback="dislike" data-music-key="' + escapeHtml(key) + '" class="' + (liked === -1 ? 'active' : '') + '">👎 换一首</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener">↗</a></article>'; };
+    list.innerHTML = renderSong(getMusicSlotSong(part, '你们的网易云歌单'), '我的推荐 · 网易云') + renderSong(getMusicSlotSong(part, '你们的 Apple Music 歌单'), '对方的推荐 · Apple Music');
   }
 
   document.addEventListener('click', event => {
