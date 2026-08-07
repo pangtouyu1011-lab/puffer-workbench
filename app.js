@@ -539,6 +539,7 @@
   }
 
   document.addEventListener('click', event => {
+    const button = event.target.closest('[data-music-feedback]'); if (!button) return;
     event.preventDefault(); event.stopPropagation(); const settings = musicSettings(); const key = button.dataset.musicKey; const action = button.dataset.musicFeedback; const value = action === 'like' ? 1 : -1;
     if (action === 'like' && settings._musicLikes[key] === 1) delete settings._musicLikes[key]; else settings._musicLikes[key] = value;
     if (button.dataset.musicFeedback === 'block') { settings._musicBlocked = settings._musicBlocked || {}; settings._musicBlocked[key] = true; }
