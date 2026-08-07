@@ -61,6 +61,7 @@
   const musicLink = (id) => id ? 'https://music.apple.com/cn/song/' + id : APPLE_PLAYLIST_URL;
   const musicSearch = (query) => 'https://music.apple.com/cn/search?term=' + encodeURIComponent(query);
   const NETEASE_PROFILE_TAGS = ['rain','night','tired','indie','rap','experimental','emotional'];
+  const APPLE_PROFILE_TAGS = ['morning','noon','sun','clear','happy','warm','soft','slow','weekend','workweek'];
   const MUSIC_LYRICS = {
     '简单爱':'我想带你骑单车',
     '爱在西元前':'我给你的爱写在西元前',
@@ -509,8 +510,8 @@
     const styleWanted = new Set(NETEASE_PROFILE_TAGS);
     const seed = todayKey() + part + String(state._weather && state._weather.code);
     const settings = musicSettings(); const recent = new Set(settings._musicHistory.slice(-12).map(item => item.key)); const likes = settings._musicLikes;
-    const allowedSources = Array.isArray(sourceFilter) ? sourceFilter : (sourceFilter ? [sourceFilter] : null);
-    const ranked = MUSIC_LIBRARY.filter(song => !allowedSources || allowedSources.includes(song.source)).map((song, index) => { let score = 0; const key = musicSongKey(song); song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; if (recent.has(key)) score -= 8; if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
+    const allowedSources = Array.isArray(sourceFilter) ? sourceFilter : (sourceFilter ? [sourceFilter] : null); const profileTags = allowedSources && allowedSources.includes('你们的网易云歌单') ? NETEASE_PROFILE_TAGS : APPLE_PROFILE_TAGS;
+    const ranked = MUSIC_LIBRARY.filter(song => !allowedSources || allowedSources.includes(song.source)).map((song, index) => { let score = 0; const key = musicSongKey(song); song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; if (song.source === '相似推荐' && profileTags.includes(tag)) score += 2.2; }); if (song.source === '相似推荐') score += 1.1; if (recent.has(key)) score -= 8; if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
     const chosen = ranked.find(item => !excluded || !excluded.has(item.song.title)) || ranked[0];
     return chosen ? [chosen.song] : [];
   }
@@ -519,8 +520,8 @@
     if (musicSlotCache.has(slotKey) && !rejected.has(musicSlotCache.get(slotKey))) { const memorySong = MUSIC_LIBRARY.find(song => musicSongKey(song) === musicSlotCache.get(slotKey)); if (memorySong) return memorySong; }
     settings._musicSlotSongKeys = settings._musicSlotSongKeys || {};
     if (settings._musicSlotSongKeys[slotKey] && !rejected.has(settings._musicSlotSongKeys[slotKey])) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKeys[slotKey]); if (cached) return cached; }
-    const song = pickMusicFor(part, new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)), sourceFilter)[0]; if (!song) return null;
-    settings._musicSlotSongKeys[slotKey] = musicSongKey(song); musicSlotCache.set(slotKey, musicSongKey(song)); settings._musicRejectedForSlot = [];
+    const excludedTitles = new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)); const song = pickMusicFor(part, excludedTitles, sourceFilter)[0]; if (!song) return null;
+    settings._musicSlotSongKeys[slotKey] = musicSongKey(song); musicSlotCache.set(slotKey, musicSongKey(song));
     settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); save({ silent: true }); return song;
   }
   function renderMusicWidget() {
