@@ -75,12 +75,18 @@
     '山海':'我看着天真的我自己',
     '凄美地':'别让我的梦醒来',
     '爱人错过':'我肯定在几百年前就说过爱你',
-    '小宇':'总有一天我会带你去看天荒地老'
+    '小宇':'总有一天我会带你去看天荒地老',
+    '开不了口':'我可以无所谓',
+    '我不配':'这街上太拥挤',
+    '黑色毛衣':'一件黑色毛衣',
+    '退后':'天空灰得像哭过',
+    '不能说的秘密':'最美的不是下雨天',
+    '彩虹':'哪里有彩虹告诉我'
   };
   const MUSIC_LIBRARY = [
     { title:'简单爱', artist:'周杰伦', id:'535739351', tags:['morning','noon','sun','clear','happy','weekend','friday'] },
     { title:'特别的人', artist:'方大同', id:'1579903651', tags:['morning','noon','cloud','soft','warm','workweek'] },
-    { title:'爱在西元前', artist:'周杰伦', id:'1787517382', tags:['morning','sun','clear','happy','workweek'] },
+    { title:'爱在西元前', artist:'周杰伦', id:'535739349', tags:['morning','sun','clear','happy','workweek'] },
     { title:'红豆', artist:'方大同', id:'', tags:['morning','noon','cloud','soft','slow','weekend'] },
     { title:'三人游', artist:'方大同', id:'', tags:['noon','cloud','soft','slow','weekend'] },
     { title:'水星记', artist:'郭顶', id:'1443638095', tags:['night','rain','cloud','soft','tired','slow'] },
@@ -105,16 +111,49 @@
     { title:'HEARTBREAK ANNIVERSARY', artist:'GIVĒON', id:'', tags:['night','rain','tired','slow'] },
     { title:'Melody', artist:'陶喆', id:'', tags:['morning','noon','cloud','soft','warm'] },
     { title:'流沙', artist:'陶喆', id:'', tags:['night','rain','soft','slow'] },
-    { title:'乌云中', artist:'艾热AIR', id:'', tags:['night','rain','cloud','tired'] },
     { title:'同类', artist:'孙燕姿', id:'255921849', tags:['night','rain','tired','slow'] },
-    { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] }
+    { title:'我怀念的', artist:'孙燕姿', id:'', tags:['night','rain','tired','slow'] },
+    { title:'开不了口', artist:'周杰伦', id:'535739353', tags:['night','rain','emotional','tired'] },
+    { title:'我不配', artist:'周杰伦', id:'536030699', tags:['night','rain','emotional','slow'] },
+    { title:'黑色毛衣', artist:'周杰伦', id:'536009645', tags:['night','rain','emotional','slow'] },
+    { title:'退后', artist:'周杰伦', id:'536285261', tags:['night','rain','emotional','tired'] },
+    { title:'不能说的秘密', artist:'周杰伦', id:'1624051288', tags:['night','rain','emotional','slow'] },
+    { title:'彩虹', artist:'周杰伦', id:'536030694', tags:['night','rain','emotional','soft'] },
+    { title:'等你下课', artist:'周杰伦', id:'1336404847', tags:['noon','sun','warm','happy'] },
+    { title:'爱爱爱', artist:'方大同', id:'220365871', tags:['noon','sun','soft','warm'] },
+    { title:'黑白', artist:'周杰伦', id:'313404810', tags:['night','cloud','soft','slow'] },
+    { title:'不为谁而作的歌', artist:'林俊杰', id:'1871400637', tags:['night','cloud','emotional'] },
+    { title:'关键词', artist:'林俊杰', id:'1871400641', tags:['night','cloud','soft','warm'] },
+    { title:'她说', artist:'林俊杰', id:'1071506929', tags:['night','rain','emotional','slow'] },
+    { title:'我不难过', artist:'孙燕姿', id:'255921025', tags:['night','rain','emotional','tired'] },
+    { title:'尚好的青春', artist:'孙燕姿', id:'1443147422', tags:['noon','sun','warm','soft'] },
+    { title:'小半', artist:'陈粒', id:'1421693331', tags:['night','cloud','indie','soft','emotional'] },
+    { title:'虚拟', artist:'陈粒', id:'1421693767', tags:['night','cloud','indie','soft','slow'] },
+    { title:'飞机场的10:30', artist:'陈绮贞', id:'1416149929', tags:['noon','sun','soft','warm'] },
+    { title:'爱请问怎么走', artist:'莫文蔚', id:'930758244', tags:['night','rain','emotional','slow'] },
+    { title:'阴天', artist:'莫文蔚', id:'200473135', tags:['night','cloud','soft','emotional','slow'] },
+    { title:'无人知晓的我', artist:'A-Lin', id:'1281542262', tags:['night','cloud','emotional','soft'] }
   ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
     { title:'雨瘾', artist:'网易云歌单情绪样本', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
     { title:'神选', artist:'网易云歌单情绪样本', tags:['night','cloud','rap','experimental','emotional'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
     { title:'蜈蚣', artist:'网易云歌单情绪样本', tags:['night','rap','indie','experimental'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
     { title:'我和我的现金', artist:'网易云歌单情绪样本', tags:['noon','friday','rap','happy'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
     { title:'焦虑Pt.2/膨胀', artist:'网易云歌单情绪样本', tags:['night','rain','rap','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
-    { title:'朦胧', artist:'网易云歌单情绪样本', tags:['night','cloud','indie','soft','emotional'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'朦胧', artist:'skiboyvv / rubenmccarter', id:'', tags:['night','cloud','indie','soft','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3392600720' },
+    { title:'Whisper My Name', artist:'Drake', id:'', tags:['night','cloud','rap','soft'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382153689' },
+    { title:'Separation', artist:'Westwood / onlywoke', id:'', tags:['night','rain','rap','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3327562079' },
+    { title:'National Treasures', artist:'Drake', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382153693' },
+    { title:'Burnin\' Slowly', artist:'黄格雷 / THOME', id:'', tags:['night','rain','soft','slow'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3322064338' },
+    { title:'你给的恨', artist:'艾志恒Asen / Maikon Flocka Flame', id:'', tags:['night','rain','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2754174752' },
+    { title:'玻璃', artist:'Gareth.T', id:'', tags:['night','rain','soft','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382908505' },
+    { title:'在雨后醒来（升音Sound）', artist:'Au', id:'', tags:['night','rain','soft','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3332893439' },
+    { title:'特大暴雨来了', artist:'二流', id:'', tags:['night','rain','experimental','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2718644892' },
+    { title:'ALL THE LOVE', artist:'Kanye West / Ye / Andre Troutman', id:'', tags:['night','cloud','rap','warm'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284329' },
+    { title:'AOE (All Of Everything)', artist:'DD Ma Shawty', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3334046872' },
+    { title:'PREACHER MAN', artist:'Kanye West / Ye', id:'', tags:['night','cloud','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284333' },
+    { title:'4 Raws', artist:'EsDeeKid', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2716372738' },
+    { title:'FATHER', artist:'Kanye West / Ye / Travis Scott', id:'', tags:['night','cloud','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284328' },
+    { title:'Long Time (Intro)', artist:'Playboi Carti', id:'', tags:['night','cloud','rap','slow'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=559647885' },
     { title:'Pink + White', artist:'Frank Ocean', tags:['morning','sun','soft','warm','indie'], source:'相似推荐', url:musicSearch('Frank Ocean Pink White') },
     { title:'Best Part', artist:'Daniel Caesar feat. H.E.R.', tags:['morning','noon','cloud','warm','slow'], source:'相似推荐', url:musicSearch('Daniel Caesar Best Part') },
     { title:'可惜没如果', artist:'林俊杰', tags:['night','rain','tired','emotional'], source:'相似推荐', url:musicSearch('林俊杰 可惜没如果') },
@@ -125,8 +164,7 @@
     { title:'爱人错过', artist:'告五人', tags:['noon','friday','sun','indie','happy'], source:'相似推荐', url:musicSearch('告五人 爱人错过') },
     { title:'小宇', artist:'张震岳', tags:['morning','noon','sun','warm','weekend'], source:'相似推荐', url:musicSearch('张震岳 小宇') },
     { title:'Lover Is a Day', artist:'Cuco', tags:['night','cloud','indie','soft','slow'], source:'相似推荐', url:musicSearch('Cuco Lover Is a Day') },
-    { title:'Snooze', artist:'SZA', tags:['night','rain','soft','warm'], source:'相似推荐', url:musicSearch('SZA Snooze') },
-    { title:'星球坠落', artist:'艾热AIR / 李佳隆', tags:['night','cloud','rap','emotional'], source:'相似推荐', url:musicSearch('艾热AIR 星球坠落') }
+    { title:'Snooze', artist:'SZA', tags:['night','rain','soft','warm'], source:'相似推荐', url:musicSearch('SZA Snooze') }
   ]);
 
   // ==========================================
@@ -462,14 +500,24 @@
     if (day === 0 || day === 6) return { label: '周末悠闲', tags: ['weekend','slow'] };
     return { label: '工作日慢慢进入状态', tags: ['workweek','warm'] };
   }
+  function musicSongKey(song) { return (song.source || '') + ':' + (song.id || song.artist + ':' + song.title); }
+  function musicSettings() { state.settings = state.settings || {}; state.settings._musicHistory = Array.isArray(state.settings._musicHistory) ? state.settings._musicHistory : []; state.settings._musicLikes = state.settings._musicLikes || {}; return state.settings; }
   function pickMusicFor(part, excluded) {
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
     const wanted = new Set([part, ...weather.tags, ...week.tags]);
     const styleWanted = new Set(NETEASE_PROFILE_TAGS);
     const seed = todayKey() + part + String(state._weather && state._weather.code);
-    const ranked = MUSIC_LIBRARY.map((song, index) => { let score = 0; song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
+    const settings = musicSettings(); const recent = new Set(settings._musicHistory.slice(-12).map(item => item.key)); const likes = settings._musicLikes;
+    const ranked = MUSIC_LIBRARY.map((song, index) => { let score = 0; const key = musicSongKey(song); song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; }); if (song.source === '相似推荐') score += 1.1; if (recent.has(key)) score -= 8; if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12; score += (musicHash(seed + index) % 100) / 100; return { song, score }; }).sort((a, b) => b.score - a.score);
     const chosen = ranked.find(item => !excluded || !excluded.has(item.song.title)) || ranked[0];
     return chosen ? [chosen.song] : [];
+  }
+  function getMusicSlotSong(part) {
+    const settings = musicSettings(); const slotKey = todayKey() + ':' + part; const rejected = new Set(settings._musicRejectedForSlot || []);
+    if (settings._musicSlotKey === slotKey && settings._musicSlotSongKey && !rejected.has(settings._musicSlotSongKey)) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKey); if (cached) return cached; }
+    const song = pickMusicFor(part, new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)))[0]; if (!song) return null;
+    settings._musicSlotKey = slotKey; settings._musicSlotSongKey = musicSongKey(song); settings._musicRejectedForSlot = [];
+    settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: settings._musicSlotSongKey, title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); save({ silent: true }); return song;
   }
   function renderMusicWidget() {
     const list = $('#musicList'); if (!list) return;
@@ -479,17 +527,25 @@
     if (title) title.textContent = '今天听什么';
     if (intro) intro.textContent = MUSIC_DAYPARTS[currentMusicDaypart()].greeting;
     if (reason) reason.textContent = week.label + ' · ' + weather.reason;
-    const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part]; const song = pickMusicFor(part)[0];
+    const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part]; const song = getMusicSlotSong(part);
     if (!song) { list.innerHTML = ''; return; }
     const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
-    list.innerHTML = '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
+    const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key];
+    list.innerHTML = '<article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback"><button data-music-feedback="like" data-music-key="' + escapeHtml(key) + '" class="' + (liked === 1 ? 'active' : '') + '" aria-label="喜欢">👍</button><button data-music-feedback="dislike" data-music-key="' + escapeHtml(key) + '" class="' + (liked === -1 ? 'active' : '') + '" aria-label="不喜欢">👎</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener" aria-label="打开' + escapeHtml(song.title) + '">↗</a></article>';
   }
 
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-music-feedback]'); if (!button) return;
+    event.preventDefault(); event.stopPropagation(); const settings = musicSettings(); const key = button.dataset.musicKey; const value = button.dataset.musicFeedback === 'like' ? 1 : -1;
+    settings._musicLikes[key] = value;
+    if (value === -1) { settings._musicRejectedForSlot = Array.from(new Set([...(settings._musicRejectedForSlot || []), key])); settings._musicSlotSongKey = ''; }
+    save({ silent: true }); renderMusicWidget();
+  });
   let musicSlotTimer = null;
   function notifyMusicRecommendation() {
     const part = currentMusicDaypart(); const day = todayKey(); const slotKey = day + ':' + part;
     if (state.settings._musicNotifiedSlot === slotKey) return;
-    const song = pickMusicFor(part)[0]; if (!song) return;
+    const song = getMusicSlotSong(part); if (!song) return;
     state.settings._musicNotifiedSlot = slotKey; save({ silent: true }); renderMusicWidget();
     const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
     toast(infoMusicToast(part, song, lyric), 'info');
