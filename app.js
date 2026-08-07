@@ -501,6 +501,7 @@
     return { label: '工作日慢慢进入状态', tags: ['workweek','warm'] };
   }
   function musicSongKey(song) { return (song.source || '') + ':' + (song.id || song.artist + ':' + song.title); }
+  const musicSlotCache = new Map();
   function musicSettings() { state.settings = state.settings || {}; state.settings._musicHistory = Array.isArray(state.settings._musicHistory) ? state.settings._musicHistory : []; state.settings._musicLikes = state.settings._musicLikes || {}; return state.settings; }
   function pickMusicFor(part, excluded, sourceFilter) {
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
@@ -514,10 +515,11 @@
   }
   function getMusicSlotSong(part, sourceFilter) {
     const settings = musicSettings(); const slotKey = todayKey() + ':' + part + ':' + (sourceFilter || 'all'); const rejected = new Set(settings._musicRejectedForSlot || []);
+    if (musicSlotCache.has(slotKey) && !rejected.has(musicSlotCache.get(slotKey))) { const memorySong = MUSIC_LIBRARY.find(song => musicSongKey(song) === musicSlotCache.get(slotKey)); if (memorySong) return memorySong; }
     settings._musicSlotSongKeys = settings._musicSlotSongKeys || {};
     if (settings._musicSlotSongKeys[slotKey] && !rejected.has(settings._musicSlotSongKeys[slotKey])) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKeys[slotKey]); if (cached) return cached; }
     const song = pickMusicFor(part, new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)), sourceFilter)[0]; if (!song) return null;
-    settings._musicSlotSongKeys[slotKey] = musicSongKey(song); settings._musicRejectedForSlot = [];
+    settings._musicSlotSongKeys[slotKey] = musicSongKey(song); musicSlotCache.set(slotKey, musicSongKey(song)); settings._musicRejectedForSlot = [];
     settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); save({ silent: true }); return song;
   }
   function renderMusicWidget() {
@@ -536,7 +538,7 @@
   document.addEventListener('click', event => {
     event.preventDefault(); event.stopPropagation(); const settings = musicSettings(); const key = button.dataset.musicKey; const value = button.dataset.musicFeedback === 'like' ? 1 : -1;
     settings._musicLikes[key] = value;
-    if (value === -1) { settings._musicRejectedForSlot = Array.from(new Set([...(settings._musicRejectedForSlot || []), key])); settings._musicSlotSongKeys = {}; }
+    if (value === -1) { settings._musicRejectedForSlot = Array.from(new Set([...(settings._musicRejectedForSlot || []), key])); settings._musicSlotSongKeys = {}; for (const [slot, cachedKey] of musicSlotCache) { if (cachedKey === key) musicSlotCache.delete(slot); } }
     save({ silent: true }); renderMusicWidget();
   });
   let musicSlotTimer = null;
