@@ -533,6 +533,7 @@
     const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part];
     const renderSong = (song, label) => { if (!song) return ''; const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完'; const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key]; return '<div class="music-person-label">' + label + '</div><article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback-label">喜欢这首歌吗？</div><div class="music-feedback"><button data-music-feedback="like" data-music-key="' + escapeHtml(key) + '" class="' + (liked === 1 ? 'active' : '') + '">👍 喜欢</button><button data-music-feedback="dislike" data-music-key="' + escapeHtml(key) + '" class="' + (liked === -1 ? 'active' : '') + '">👎 换一首</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener">↗</a></article>'; };
     list.innerHTML = renderSong(getMusicSlotSong(part, '你们的网易云歌单'), '我的推荐 · 网易云') + renderSong(getMusicSlotSong(part, '你们的 Apple Music 歌单'), '对方的推荐 · Apple Music');
+    list.dataset.musicRenderedSlot = todayKey() + ':' + part;
   }
 
   document.addEventListener('click', event => {
@@ -2720,7 +2721,7 @@
     const open = musicToggle.getAttribute('aria-expanded') === 'true';
     musicToggle.setAttribute('aria-expanded', String(!open));
     musicPanel.hidden = open;
-    if (!open) renderMusicWidget();
+    if (!open && !musicPanel.querySelector('[data-music-rendered-slot]')) renderMusicWidget();
   });
   const musicClose = $('#musicPanelClose');
   if (musicClose && musicToggle && musicPanel) musicClose.addEventListener('click', () => {
