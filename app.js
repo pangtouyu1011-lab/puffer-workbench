@@ -135,11 +135,11 @@
     { title:'阴天', artist:'莫文蔚', id:'200473135', tags:['night','cloud','soft','emotional','slow'] },
     { title:'无人知晓的我', artist:'A-Lin', id:'1281542262', tags:['night','cloud','emotional','soft'] }
   ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
-    { title:'雨瘾', artist:'网易云歌单情绪样本', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
-    { title:'神选', artist:'网易云歌单情绪样本', tags:['night','cloud','rap','experimental','emotional'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
-    { title:'蜈蚣', artist:'网易云歌单情绪样本', tags:['night','rap','indie','experimental'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
-    { title:'我和我的现金', artist:'网易云歌单情绪样本', tags:['noon','friday','rap','happy'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
-    { title:'焦虑Pt.2/膨胀', artist:'网易云歌单情绪样本', tags:['night','rain','rap','emotional','tired'], source:'你们的网易云歌单', url:NETEASE_PLAYLIST_URL },
+    { title:'雨瘾', artist:'SASIOVERLXRD', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410254626' },
+    { title:'神选', artist:'SASIOVERLXRD', tags:['night','cloud','rap','experimental','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410245671' },
+    { title:'蜈蚣', artist:'SASIOVERLXRD', tags:['night','rap','indie','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410240174' },
+    { title:'我和我的现金', artist:'SASIOVERLXRD', tags:['noon','friday','rap','happy'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410228672' },
+    { title:'焦虑Pt.2/膨胀', artist:'艾志恒Asen', tags:['night','rain','rap','emotional','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2163619013' },
     { title:'朦胧', artist:'skiboyvv / rubenmccarter', id:'', tags:['night','cloud','indie','soft','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3392600720' },
     { title:'Whisper My Name', artist:'Drake', id:'', tags:['night','cloud','rap','soft'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382153689' },
     { title:'Separation', artist:'Westwood / onlywoke', id:'', tags:['night','rain','rap','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3327562079' },
