@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script>
     (() => {
-      const pageVersion = '20260810-unified-cute-1';
+      const pageVersion = '20260810-settings-return-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -618,7 +618,7 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=20260810-unified-cute-1"></script>
-  <script src="life.js?v=20260810-unified-cute-1"></script>
+  <script src="app.js?v=20260810-settings-return-1"></script>
+  <script src="life.js?v=20260810-settings-return-1"></script>
 </body>
 </html>
