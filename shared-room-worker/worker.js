@@ -4,12 +4,12 @@
 //   PUT  /api/:roomId    body: { pass, data } -> { ok, rev, updatedAt }   (首次写入创建房间并设口令)
 //   GET  /health                        -> { ok:true }
 // 说明：前端负责按条目合并，后端只做「按房间存储 + 口令校验 + 版本号」。
-//       绑定 BENCH 以全局变量形式注入（service worker 格式）。
+//       KV 与 D1 通过 Worker 环境绑定注入。
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
+  'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type,X-Room-Pass'
 };
 
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
@@ -22,7 +22,7 @@ function json(obj, status, headers) {
   });
 }
 
-async function handle(request) {
+async function handle(request, env) {
   const url = new URL(request.url);
 
   if (request.method === 'OPTIONS') {
@@ -30,7 +30,7 @@ async function handle(request) {
   }
 
   if (url.pathname === '/health') {
-    return json({ ok: true }, 200, cors);
+    return json({ ok: true, storage: { kv: true, d1: !!env.DB } }, 200, cors);
   }
 
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
@@ -46,10 +46,10 @@ async function handle(request) {
 
   if (request.method === 'GET') {
     const pass = url.searchParams.get('pass') || '';
-    const meta = await BENCH.get(metaKey, { type: 'json' });
+    const meta = await env.BENCH.get(metaKey, { type: 'json' });
     if (!meta) return json({ error: 'not_found' }, 404, cors);
     if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
-    const rec = await BENCH.get(dataKey, { type: 'json' });
+    const rec = await env.BENCH.get(dataKey, { type: 'json' });
     return json(
       { ok: true, schemaVersion: 1, roomId: room, data: rec ? rec.data : null, rev: meta.rev, updatedAt: meta.updatedAt },
       200, cors
@@ -64,7 +64,7 @@ async function handle(request) {
     if (!body || body.data === undefined) return json({ error: 'data_required' }, 400, cors);
     const payloadBytes = new TextEncoder().encode(JSON.stringify(body.data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
-    const meta = await BENCH.get(metaKey, { type: 'json' });
+    const meta = await env.BENCH.get(metaKey, { type: 'json' });
     if (meta) {
       if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
     } else {
@@ -72,14 +72,28 @@ async function handle(request) {
     }
     const rev = (meta ? meta.rev : 0) + 1;
     const now = Date.now();
-    await BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
-    await BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
+    await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
+    await env.BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
+    // D1 is an index for the future relational migration. KV remains the source of truth
+    // until room records are normalized and migrated in a separate, reversible step.
+    if (env.DB) {
+      try {
+        await env.DB.prepare(
+          'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
+          'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
+        ).bind(room, rev, now, 'kv').run();
+      } catch (_) {
+        // Indexing failure must never interrupt the existing room sync path.
+      }
+    }
     return json({ ok: true, schemaVersion: 1, roomId: room, rev, updatedAt: now }, 200, cors);
   }
 
   return json({ error: 'method_not_allowed' }, 405, cors);
 }
 
-addEventListener('fetch', (event) => {
-  event.respondWith(handle(event.request));
-});
+export default {
+  fetch(request, env) {
+    return handle(request, env);
+  }
+};
