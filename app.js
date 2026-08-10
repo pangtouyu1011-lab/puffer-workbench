@@ -2809,6 +2809,8 @@
     getHoroscopes() { return ['gemini','libra'].map(sign => ({ sign, meta: HOROS[sign], data: dailyHoroscope(sign) })); },
     setDailyStatus(person, mood, text) { const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: String(text || '').trim(), updatedAt: Date.now() }; save(); },
     addMessage(text) { const value = String(text || '').trim(); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
+    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressImage(file, 1280, 0.8); state.gallery.push({ id: uid(), dataUrl, url: '', caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');
