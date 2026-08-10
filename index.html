@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script>
     (() => {
-      const pageVersion = '20260810-layout-recovery-2';
+      const pageVersion = '20260810-status-message-photo-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -34,7 +34,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=20260807-music-artists-10" />
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-  <link rel="stylesheet" href="life.css?v=20260810-layout-recovery-2" />
+  <link rel="stylesheet" href="life.css?v=20260810-status-message-photo-1" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -613,7 +613,7 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=20260810-layout-recovery-2"></script>
-  <script src="life.js?v=20260810-layout-recovery-2"></script>
+  <script src="app.js?v=20260810-status-message-photo-1"></script>
+  <script src="life.js?v=20260810-status-message-photo-1"></script>
 </body>
 </html>
