@@ -359,6 +359,7 @@
   function save(opts) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.dispatchEvent(new CustomEvent('puffer-state-change'));
       // 用户操作触发推送；但推送/轮询内部保存时用 silent 跳过，
       // 否则「推送成功→save→再推送」会形成每 1 秒一次的无限循环，
       // 双人在线时互相抢写，rev 疯涨，版本冲突变成必然。
@@ -2772,5 +2773,20 @@
   window.addEventListener('focus', () => { pollRoom(); });
   updateMsgBadge();
   updateMsgNotifyBtn();
+  window.PufferLife = {
+    getState() {
+      return JSON.parse(JSON.stringify({
+        todos: state.todos,
+        trainings: state.trainings,
+        messages: state.messages,
+        gallery: state.gallery,
+        wishes: state.wishes,
+        fortune: state.fortune,
+        settings: state.settings,
+        weather: state._weather || null,
+      }));
+    },
+    open(page) { goPage(page); }
+  };
   goPage('dashboard');
 })();
