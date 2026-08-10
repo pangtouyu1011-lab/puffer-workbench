@@ -2809,6 +2809,7 @@
     },
     open(page) { goPage(page); },
     getHoroscopes() { return ['gemini','libra'].map(sign => ({ sign, meta: HOROS[sign], data: dailyHoroscope(sign) })); },
+    getDailyMusic() { const part = currentMusicDaypart(), neteaseSource = '\u4f60\u4eec\u7684\u7f51\u6613\u4e91\u6b4c\u5355', appleSources = ['\u4f60\u4eec\u7684 Apple Music \u6b4c\u5355', '\u76f8\u4f3c\u63a8\u8350']; return { netease: getMusicSlotSong(part, neteaseSource) || pickMusicFor(part, new Set(), neteaseSource)[0] || null, apple: getMusicSlotSong(part, appleSources) || pickMusicFor(part, new Set(), appleSources)[0] || null }; },
     setDailyStatus(person, mood, text) { const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: String(text || '').trim(), updatedAt: Date.now() }; save(); },
     addTodo(input) { const text = String(input && input.text || '').trim(); if (!text) return false; state.todos.push({ id: uid(), text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = String(input && input.text || '').trim(); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },
