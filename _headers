@@ -1,8 +1,10 @@
 /index.html
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
+  Cache-Control: no-store, no-cache, must-revalidate
 /version.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/*
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: no-store, no-cache, must-revalidate
+/app.js
+  Cache-Control: no-cache, must-revalidate
+/life.js
+  Cache-Control: no-cache, must-revalidate
+/life.css
+  Cache-Control: no-cache, must-revalidate
