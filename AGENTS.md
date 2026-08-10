@@ -35,6 +35,7 @@
 - 切勿提交任何 `sbp_...` / `cfut_...` 私密令牌（正常不存在于代码中）。
 
 ## 常见改动清单
+- 视觉改版必须覆盖所有可达页面与弹层（今天、日子、待办日历、星座抽签、小事、留言、训练、心愿、相册管理、设置）；不得只更新首页而让任何新版入口跳回旧视觉页面。
 - 改两人称呼/文案：搜 `partners`、各处标题模板字符串。
 - 加新模块页面：① `index.html` 加 `page-xxx` 区块 + 侧边栏/bottom-nav 入口；② `app.js` 加 render/modal/`onPageEnter` 分支；③ `serializeRoom`/`mergeState` 纳入新数组（否则不同步）。
 - 加待办字段：注意 `todoToICS`、日历 `renderCalendar`、每周清理 `runWeeklyCleanup` 都要兼容。

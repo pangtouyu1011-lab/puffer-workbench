@@ -287,6 +287,7 @@
     meals: defaultMeals(),
     wishes: [],
     water: {},
+    dailyStatus: {},
     fortune: null,          // 两人各自的祈福签：{ date, by: { a, b } }
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
@@ -325,6 +326,7 @@
       if (!state.meals) state.meals = defaultMeals();
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
+      if (!state.dailyStatus || typeof state.dailyStatus !== 'object') state.dailyStatus = {};
       compactRoomState();
       save({ silent: true });
       // 迁移旧版共享抽签（settings.fortune 单一签）→ 顶层双人结构（旧签归 a）
@@ -2260,6 +2262,7 @@
       meals: compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now),
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
+      dailyStatus: state.dailyStatus,
       fortune: state.fortune,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
@@ -2299,6 +2302,15 @@
     });
     return out;
   }
+  function mergeDailyStatus(local, remote) {
+    const out = Object.assign({}, local || {});
+    Object.keys(remote || {}).forEach(date => {
+      const l = out[date] || {}, r = remote[date] || {}, next = Object.assign({}, l);
+      ['a','b'].forEach(person => { if (r[person] && (!l[person] || (r[person].updatedAt || 0) > (l[person].updatedAt || 0))) next[person] = r[person]; });
+      out[date] = next;
+    });
+    return out;
+  }
 
   function mergeState(local, remote) {
     if (!remote) return;
@@ -2319,6 +2331,7 @@
         });
         return out;
       })(),
+      dailyStatus: mergeDailyStatus(local.dailyStatus, remote.dailyStatus),
       // 祈福抽签：两人各自抽，按 by.a/by.b 的 ts 取新（同一日期）
       fortune: mergeFortune(local.fortune, remote.fortune),
     });
@@ -2787,11 +2800,16 @@
         gallery: state.gallery,
         wishes: state.wishes,
         fortune: state.fortune,
+        dailyStatus: state.dailyStatus,
         settings: state.settings,
         weather: state._weather || null,
       }));
     },
-    open(page) { goPage(page); }
+    open(page) { goPage(page); },
+    getHoroscopes() { return ['gemini','libra'].map(sign => ({ sign, meta: HOROS[sign], data: dailyHoroscope(sign) })); },
+    setDailyStatus(person, mood, text) { const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: String(text || '').trim(), updatedAt: Date.now() }; save(); },
+    addMessage(text) { const value = String(text || '').trim(); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');
 })();
