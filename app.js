@@ -55,6 +55,45 @@
   });
 
   const GALLERY_MAX = 5;
+  // Images still travel with the room payload until R2 is available. Keep a clear
+  // safety margin below typical browser storage and the Worker KV payload ceiling.
+  const EMBEDDED_IMAGE_MAX_BYTES = 500 * 1024;
+  const LOCAL_STORAGE_WARN_BYTES = Math.floor(3.8 * 1024 * 1024);
+  const LOCAL_STORAGE_HARD_BYTES = Math.floor(4.5 * 1024 * 1024);
+  const ROOM_PAYLOAD_WARN_BYTES = Math.floor(6.4 * 1024 * 1024);
+  const ROOM_PAYLOAD_HARD_BYTES = Math.floor(7.2 * 1024 * 1024);
+  const byteSize = value => new TextEncoder().encode(String(value || '')).byteLength;
+  const formatBytes = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  function currentStorageUsage() {
+    const local = byteSize(JSON.stringify(state));
+    let room = 0;
+    try { room = byteSize(JSON.stringify(serializeRoom())); } catch (_) { room = local; }
+    return { local, room };
+  }
+  function storageUsageLabel() {
+    const usage = currentStorageUsage();
+    const near = usage.local >= LOCAL_STORAGE_WARN_BYTES || usage.room >= ROOM_PAYLOAD_WARN_BYTES;
+    return { near, text: `当前数据约 ${formatBytes(usage.local)}；同步内容约 ${formatBytes(usage.room)}` };
+  }
+  async function compressRoomImage(file) {
+    let dataUrl = await compressImage(file, 1280, 0.8);
+    if (byteSize(dataUrl) > EMBEDDED_IMAGE_MAX_BYTES) dataUrl = await compressImage(file, 1024, 0.72);
+    if (byteSize(dataUrl) > EMBEDDED_IMAGE_MAX_BYTES) dataUrl = await compressImage(file, 800, 0.65);
+    if (byteSize(dataUrl) > EMBEDDED_IMAGE_MAX_BYTES) throw new Error('图片压缩后仍然过大，请换一张照片或裁剪后再试');
+    return dataUrl;
+  }
+  function canAddEmbeddedImage(dataUrl) {
+    const usage = currentStorageUsage();
+    const extra = byteSize(dataUrl) + 2048;
+    if (usage.local + extra > LOCAL_STORAGE_HARD_BYTES || usage.room + extra > ROOM_PAYLOAD_HARD_BYTES) {
+      toast('为避免本地保存或同步突然失败，这张图片没有保存。请先在“我们与同步”中导出备份，再清理一些旧图片。', 'error');
+      return false;
+    }
+    if (usage.local + extra >= LOCAL_STORAGE_WARN_BYTES || usage.room + extra >= ROOM_PAYLOAD_WARN_BYTES) {
+      toast('图片已保存，但存储空间接近上限；建议尽快导出备份并整理旧图片。', 'info');
+    }
+    return true;
+  }
 
   const APPLE_PLAYLIST_URL = 'https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6';
   const NETEASE_PLAYLIST_URL = 'https://music.163.com/playlist?id=162638755';
@@ -664,7 +703,7 @@
       const list = $('#galManageList');
       const its = live(state.gallery);
       const hint = $('#galHint');
-      if (hint) hint.textContent = '上传图片会自动压缩（最长边 ≤ 1280px，JPEG 80%）· 已存 ' + its.length + '/' + GALLERY_MAX + ' 张';
+      if (hint) { const usage = storageUsageLabel(); hint.textContent = '上传图片会自动压缩并检查同步空间 · 已存 ' + its.length + '/' + GALLERY_MAX + ' 张 · ' + usage.text + (usage.near ? '（建议备份）' : ''); }
       if (!its.length) { list.innerHTML = '<p class="muted">还没有照片</p>'; return; }
       list.innerHTML = its.map(g =>
         '<div class="gal-manage-item" data-id="' + g.id + '">' +
@@ -691,10 +730,11 @@
       }
       if (file) {
         toast('压缩中...');
-        compressImage(file, 1280, 0.8).then(dataUrl => {
+        compressRoomImage(file).then(dataUrl => {
+          if (!canAddEmbeddedImage(dataUrl)) return;
           state.gallery.push({ id: uid(), dataUrl, url: '', caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
           save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
-        }).catch(() => toast('图片处理失败', 'error'));
+        }).catch((error) => toast(error && error.message ? error.message : '图片处理失败', 'error'));
       } else if (url) {
         state.gallery.push({ id: uid(), dataUrl: '', url: url, caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
         save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
@@ -2016,6 +2056,7 @@
 
   // 二维码同步：把数据编码到 URL hash
   function openSyncModal() {
+    const usage = storageUsageLabel();
     openModal({
       title: '🔄 同步与备份',
       body: `
@@ -2047,6 +2088,7 @@
           </section>
           <section class="settings-card">
             <div class="settings-card-head"><span class="settings-icon">🗂</span><div><h4>备份与迁移</h4><p>换设备、扫码或手动备份时使用。</p></div></div>
+            <div class="settings-status ${usage.near ? 'is-warning' : ''}">${escapeHtml(usage.text)}${usage.near ? ' · 建议现在导出备份并整理旧图片' : ''}</div>
             <div class="settings-actions"><button class="pixel-btn primary" id="syncExport">📥 导出 JSON</button><button class="pixel-btn" id="syncImport">📤 导入 JSON</button><button class="pixel-btn" id="syncQR">生成二维码</button><button class="pixel-btn" id="syncFromQR">扫码导入</button></div>
             <div id="qrArea" class="settings-qr"><div id="qrCanvas"></div><p>手机扫码即可同步，或长按图片保存。</p></div>
           </section>
@@ -2836,8 +2878,8 @@
     exportTodos() { exportTodosToCalendar(live(state.todos).filter(t=>t.date),'情侣工作台待办'); return true; },
     addMessage(text) { const value = String(text || '').trim(); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
-    async addMessageFile(file, text) { const value = String(text || '').trim(); if (!file && !value) return false; const image = file ? await compressImage(file, 1280, 0.8) : ''; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
-    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressImage(file, 1280, 0.8); state.gallery.push({ id: uid(), dataUrl, url: '', caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addMessageFile(file, text) { const value = String(text || '').trim(); if (!file && !value) return false; const image = file ? await compressRoomImage(file) : ''; if (image && !canAddEmbeddedImage(image)) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); if (!canAddEmbeddedImage(dataUrl)) return false; state.gallery.push({ id: uid(), dataUrl, url: '', caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');

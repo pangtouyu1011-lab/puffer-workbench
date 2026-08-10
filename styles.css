@@ -1107,6 +1107,7 @@ body {
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .settings-actions .pixel-btn { min-height: 36px; padding: 8px 13px; }
 .settings-status { margin-top: 12px; padding: 9px 11px; border: 1px dashed #E6CDBB; border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.72); font-size: 11px; line-height: 1.55; }
+.settings-status.is-warning { color: #9b593d; border-color: #e5a985; background: #fff4ec; }
 .settings-status strong { color: var(--ink); }
 .settings-optional { display: inline-block; margin-left: 4px; padding: 2px 6px; border-radius: 999px; color: var(--muted); background: var(--cream); font-family: var(--font-body); font-size: 9px; font-weight: 500; vertical-align: middle; }
 .settings-qr { display: none; margin-top: 14px; padding: 14px; text-align: center; border: 1px dashed #E6CDBB; border-radius: 12px; background: #fff; }
