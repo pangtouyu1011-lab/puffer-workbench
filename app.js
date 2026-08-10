@@ -392,6 +392,11 @@
   }
 
   function goPage(name) {
+    // 新版四页界面把「首页」统一收敛到“今天”。从旧工具页返回首页时，恢复新版外壳，避免落回隐藏的旧仪表板。
+    if (name === 'dashboard' && document.getElementById('lifeApp')) {
+      document.body.classList.add('life-mode');
+      window.dispatchEvent(new CustomEvent('puffer-life-home'));
+    }
     document.body.dataset.page = name;
     $$('.page').forEach(p => p.classList.remove('active'));
     const target = $(`#page-${name}`);
