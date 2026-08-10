@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script>
     (() => {
-      const pageVersion = '20260810-music-cleanup-1';
+      const pageVersion = '20260810-complete-pet-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -39,7 +39,8 @@
   <link rel="stylesheet" href="life-dashboard.css?v=20260810-unified-cute-1" />
   <link rel="stylesheet" href="life-dashboard-music.css?v=20260810-unified-cute-1" />
   <link rel="stylesheet" href="life-home-compact.css?v=20260810-music-cleanup-1" />
-  <link rel="stylesheet" href="life-unified-preview.css?v=20260810-unified-cute-1" />
+  <link rel="stylesheet" href="life-unified-preview.css?v=20260810-complete-pet-1" />
+  <link rel="stylesheet" href="life-complete-state.css?v=20260810-complete-pet-1" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -618,7 +619,8 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=20260810-music-cleanup-1"></script>
-  <script src="life.js?v=20260810-music-cleanup-1"></script>
+  <script src="app.js?v=20260810-complete-pet-1"></script>
+  <script src="life.js?v=20260810-complete-pet-1"></script>
+  <script src="life-complete-state.js?v=20260810-complete-pet-1"></script>
 </body>
 </html>
