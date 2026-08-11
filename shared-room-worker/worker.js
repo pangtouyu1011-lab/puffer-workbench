@@ -105,8 +105,15 @@ async function handle(request, env) {
     const meta = await env.BENCH.get(metaKey, { type: 'json' });
     if (meta) {
       if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
+      // 拒绝基于旧版本的写入。前端会重新拉取、按条目合并后再提交，
+      // 这样双方同时编辑时不会发生“后一份整屋覆盖前一份”。
+      const baseRev = Number(body.baseRev);
+      if (!Number.isInteger(baseRev) || baseRev !== Number(meta.rev || 0)) {
+        return json({ error: 'conflict', rev: Number(meta.rev || 0), updatedAt: meta.updatedAt }, 409, cors);
+      }
     } else {
       if (!pass) return json({ error: 'pass_required' }, 400, cors);
+      if (body.baseRev !== undefined && Number(body.baseRev) !== 0) return json({ error: 'conflict', rev: 0 }, 409, cors);
     }
     const rev = (meta ? meta.rev : 0) + 1;
     const now = Date.now();

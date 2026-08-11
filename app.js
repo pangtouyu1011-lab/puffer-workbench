@@ -619,14 +619,7 @@
     if (state.settings._musicNotifiedSlot === slotKey) return;
     const song = getMusicSlotSong(part); if (!song) return;
     state.settings._musicNotifiedSlot = slotKey; save({ silent: true }); renderMusicWidget();
-    const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完';
-    toast(infoMusicToast(part, song, lyric), 'info');
-    try {
-      if (state.settings.notifySystem !== false && 'Notification' in window && Notification.permission === 'granted') {
-        const n = new Notification('♫ ' + MUSIC_DAYPARTS[part].label + '音乐到了', { body: song.title + ' · “' + lyric + '”', tag: 'puffer-music-' + part });
-        n.onclick = () => { try { window.focus(); } catch (e) {} const toggle = $('#musicFloatToggle'); if (toggle) toggle.click(); n.close(); };
-      }
-    } catch (e) { /* 浏览器通知不可用时保留页面内提示 */ }
+    // 今日音乐已在首页固定呈现；首次打开不再用弹窗或系统通知重复打断。
   }
   function infoMusicToast(part, song, lyric) { return '♫ ' + MUSIC_DAYPARTS[part].label + '：' + song.title + ' · “' + lyric + '”'; }
   function startMusicSlotTimer() {
@@ -1997,7 +1990,7 @@
     }
     if (state.settings.room && state.settings.room.joined) {
       dot.className = 'sync-dot cloud';
-      text.textContent = '共享:' + state.settings.room.id;
+      text.textContent = '同步正常';
     } else if (cloud) {
       dot.className = 'sync-dot cloud';
       text.textContent = '云端';
@@ -2076,15 +2069,15 @@
   function openSyncModal() {
     const usage = storageUsageLabel();
     openModal({
-      title: '🔄 同步与备份',
+      title: '我们与同步',
       body: `
         <div class="settings-layout">
           <div class="settings-hero">
-            <div class="settings-hero-icon">⚙</div>
-            <div><strong>把你们的小窝设置好</strong><p>同步、成员信息和备份都集中在这里。</p></div>
+            <div class="settings-hero-icon"><i class="ph ph-cloud-check"></i></div>
+            <div><strong>${state.settings.room.joined && !syncFailed ? '同步正常' : '管理共同空间'}</strong><p>${state.settings.room.joined ? '前台会自动接收彼此的更新。' : '加入同一个房间后，数据会自动同步。'}</p></div>
           </div>
           <section class="settings-card">
-            <div class="settings-card-head"><span class="settings-icon">💛</span><div><h4>你们的信息</h4><p>这些内容会显示在首页标题和问候里。</p></div></div>
+            <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-heart"></i></span><div><h4>你们的信息</h4><p>这些内容会显示在首页标题和问候里。</p></div></div>
             <div class="settings-fields">
               <div class="settings-field"><label for="partnerA">成员 A</label><input class="pixel-input" id="partnerA" value="${escapeHtml((state.settings.partners || {}).a || '孙大炮')}" placeholder="成员 A 称呼" /></div>
               <div class="settings-field"><label for="partnerB">成员 B</label><input class="pixel-input" id="partnerB" value="${escapeHtml((state.settings.partners || {}).b || '童大侠')}" placeholder="成员 B 称呼" /></div>
@@ -2092,28 +2085,21 @@
             <div class="settings-field settings-field-wide"><label for="cityInput">所在城市</label><input class="pixel-input" id="cityInput" value="${escapeHtml(state.settings.city || '杭州')}" placeholder="如 杭州 / 上海 / 北京" /><span class="settings-hint">用于获取天气和生成音乐推荐。</span></div>
           </section>
           <section class="settings-card settings-card-featured">
-            <div class="settings-card-head"><span class="settings-icon">🤝</span><div><h4>共享房间</h4><p>两台设备使用同一个房间 ID 和口令，数据会自动同步。</p></div></div>
-            <div class="settings-note">当前默认使用 <strong>Cloudflare Workers + KV</strong>。已有房间请直接加入，不要重复创建。</div>
+            <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-users-three"></i></span><div><h4>共享房间</h4><p>两台设备使用同一个房间 ID 和口令，数据会自动同步。</p></div></div>
+            <div class="settings-note">使用 <strong>Cloudflare 同步</strong>。已有房间请直接加入，不要重复创建。</div>
             <div class="settings-fields settings-fields-wide">
-              <div class="settings-field"><label for="roomBackend">同步后端</label><select id="roomBackend" class="pixel-input"><option value="supabase" ${state.settings.room.backend === 'worker' ? '' : 'selected'}>Supabase（备用）</option><option value="worker" ${state.settings.room.backend === 'worker' ? 'selected' : ''}>Cloudflare Workers（当前）</option></select></div>
-              <div class="settings-field"><label for="roomUrl">房间地址</label><input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || '')}" placeholder="Worker 或 Supabase 项目地址" /></div>
-              <div class="settings-field settings-field-wide"><label for="roomAnon">Supabase Anon Key <span>（备用后端才需要）</span></label><input class="pixel-input" id="roomAnon" value="${escapeHtml(state.settings.room.anon || '')}" placeholder="公开密钥，可安全填入前端" style="${state.settings.room.backend === 'worker' ? 'display:none' : ''}" /></div>
+              <div class="settings-field settings-field-wide"><label for="roomUrl">同步地址</label><input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || DEFAULT_WORKER_URL)}" placeholder="https://sync.20051011.xyz" /></div>
               <div class="settings-field"><label for="roomId">房间 ID</label><input class="pixel-input" id="roomId" value="${escapeHtml(state.settings.room.id || '')}" placeholder="两人保持一致" /></div>
               <div class="settings-field"><label for="roomPass">访问口令</label><input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="房间口令" /></div>
             </div>
-            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">🤝 加入房间</button><button class="pixel-btn" id="roomCreate">创建新房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn danger" id="roomLeave">退出</button></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
             <div id="roomStatus" class="settings-status">尚未加入共享房间</div>
           </section>
           <section class="settings-card">
-            <div class="settings-card-head"><span class="settings-icon">🗂</span><div><h4>备份与迁移</h4><p>换设备、扫码或手动备份时使用。</p></div></div>
+            <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-shield-check"></i></span><div><h4>备份与迁移</h4><p>换设备、扫码或手动备份时使用。</p></div></div>
             <div class="settings-status ${usage.near ? 'is-warning' : ''}">${escapeHtml(usage.text)}${usage.near ? ' · 建议现在导出备份并整理旧图片' : ''}</div>
-            <div class="settings-actions"><button class="pixel-btn primary" id="syncExport">📥 导出 JSON</button><button class="pixel-btn" id="syncImport">📤 导入 JSON</button><button class="pixel-btn" id="syncQR">生成二维码</button><button class="pixel-btn" id="syncFromQR">扫码导入</button></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="syncExport">导出备份</button><button class="pixel-btn" id="syncImport">导入备份</button><button class="pixel-btn" id="syncQR">生成迁移码</button><button class="pixel-btn" id="syncFromQR">导入迁移码</button></div>
             <div id="qrArea" class="settings-qr"><div id="qrCanvas"></div><p>手机扫码即可同步，或长按图片保存。</p></div>
-          </section>
-          <section class="settings-card settings-card-muted">
-            <div class="settings-card-head"><span class="settings-icon">☁</span><div><h4>其他云端 API <span class="settings-optional">可选</span></h4><p>仅在你有其他 JSON 存储服务时使用。</p></div></div>
-            <div class="settings-field settings-field-wide"><label for="cloudUrl">API 地址</label><input class="pixel-input" id="cloudUrl" value="${escapeHtml(state.settings.cloudUrl || '')}" placeholder="JSONBin、npoint 或自建 API 地址" /></div>
-            <div class="settings-actions"><button class="pixel-btn primary" id="cloudSave">保存并测试</button><button class="pixel-btn ghost" id="cloudClear">清除</button></div>
           </section>
           <section class="settings-danger"><div><strong>危险操作</strong><p>清空所有本地数据，且无法恢复。</p></div><button class="pixel-btn danger" id="wipeAll">清空所有数据</button></section>
         </div>
@@ -2142,20 +2128,10 @@
     $('#syncImport').addEventListener('click', () => { importJSON(); });
     $('#syncQR').addEventListener('click', generateQR);
     $('#syncFromQR').addEventListener('click', importFromQR);
-    $('#cloudSave').addEventListener('click', testCloud);
-    $('#cloudClear').addEventListener('click', () => {
-      state.settings.cloudUrl = '';
-      save(); updateSyncPill(); toast('已清除云端配置');
-    });
-    $('#roomBackend').addEventListener('change', (e) => {
-      state.settings.room.backend = e.target.value;
-      const isSb = state.settings.room.backend === 'supabase';
-      $('#roomAnon').style.display = isSb ? '' : 'none';
-      $('#roomUrl').placeholder = isSb ? '项目 URL，如 https://xxxx.supabase.co' : '房间地址，如 https://puffer-share.xxx.workers.dev';
-      save();
-    });
-    $('#roomUrl').addEventListener('input', (e) => { state.settings.room.url = e.target.value.trim(); save(); });
-    $('#roomAnon').addEventListener('input', (e) => { state.settings.room.anon = e.target.value.trim(); save(); });
+    // Supabase 与其他旧云端入口不在日常界面显示；保留兼容代码，不删除用户历史文件。
+    state.settings.room.backend = 'worker';
+    state.settings.room.anon = '';
+    $('#roomUrl').addEventListener('input', (e) => { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); });
     $('#roomId').addEventListener('input', (e) => { state.settings.room.id = e.target.value.trim(); save(); });
     $('#roomPass').addEventListener('input', (e) => { state.settings.room.pass = e.target.value.trim(); save(); });
     $('#roomJoin').addEventListener('click', joinRoom);
@@ -2330,7 +2306,13 @@
     };
   }
 
-  // 按条目 id 合并两个数组：删除标记优先，内容以 updatedAt 较新者胜（平局时本地优先）
+  // 同一时间戳的极少数并发编辑也要得出同一结果，不能让两端各自保留本地版本。
+  function stableRecord(value) {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stableRecord).join(',') + ']';
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableRecord(value[key])).join(',') + '}';
+  }
+  // 按条目 id 合并两个数组：删除标记优先，内容以 updatedAt 较新者胜。
   function mergeArr(localArr, remoteArr) {
     const map = new Map();
     const put = (it) => {
@@ -2341,7 +2323,7 @@
       if (!it.deleted && ex.deleted) { return; }
       const tIt = it.updatedAt || it.createdAt || 0;
       const tEx = ex.updatedAt || ex.createdAt || 0;
-      if (tIt > tEx) map.set(it.id, it);
+      if (tIt > tEx || (tIt === tEx && stableRecord(it) > stableRecord(ex))) map.set(it.id, it);
     };
     // 先放本地版本：时间戳相同时保留本地状态；远端只有在明确更新时才覆盖。
     (localArr || []).forEach(put);
@@ -2519,13 +2501,14 @@
     let res = await syncFetch(v1Url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, data })
+      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, baseRev: Number(r.lastRev || 0), data })
     }, SYNC_UPLOAD_TIMEOUT_MS);
-    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, data }) }, SYNC_UPLOAD_TIMEOUT_MS);
+    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, baseRev: Number(r.lastRev || 0), data }) }, SYNC_UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
       if (e.error === 'payload_too_large') throw new Error('同步数据超过 8MB 安全上限，请清理旧图片或历史记录后重试');
+      if (e.error === 'conflict') throw new Error('版本冲突（请稍后重试）');
       throw new Error('HTTP ' + res.status);
     }
     return res.json();
@@ -2542,9 +2525,9 @@
   let syncRetryCount = 0;
   let syncRetryTimer = null;
   const MAX_SYNC_RETRY = 6;
-  // 版本冲突自动重试：重新拉取→合并→再写，最多 2 次（化解双端竞态）
+  // 版本冲突自动重试：重新拉取→合并→再写，最多 4 次（化解双端竞态）
   let conflictRetryCount = 0;
-  const MAX_CONFLICT_RETRY = 2;
+  const MAX_CONFLICT_RETRY = 4;
   function scheduleSyncRetry() {
     if (!roomActive()) return;
     if (syncRetryCount >= MAX_SYNC_RETRY) return;
@@ -2595,7 +2578,7 @@
         if (isConflict && conflictRetryCount < MAX_CONFLICT_RETRY) {
           // 对方也在写：快照过期。重新拉取-合并-再写，自动化解竞态
           conflictRetryCount++;
-          await new Promise(r => setTimeout(r, 400));
+          await new Promise(r => setTimeout(r, 260 + Math.floor(Math.random() * 420)));
           return pushToRoomOnce(options);
         }
         conflictRetryCount = 0;
