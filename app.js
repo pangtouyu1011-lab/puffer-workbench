@@ -345,6 +345,7 @@
     wishes: [],
     water: {},
     dailyStatus: {},
+    interactionHistory: {},
     fortune: null,          // 两人各自的祈福签：{ date, by: { a, b } }
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
@@ -384,6 +385,7 @@
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
       if (!state.dailyStatus || typeof state.dailyStatus !== 'object') state.dailyStatus = {};
+      if (!state.interactionHistory || typeof state.interactionHistory !== 'object') state.interactionHistory = {};
       compactRoomState();
       save({ silent: true });
       // 迁移旧版共享抽签（settings.fortune 单一签）→ 顶层双人结构（旧签归 a）
@@ -417,6 +419,7 @@
 
   function save(opts) {
     try {
+      updateInteractionHistory();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       window.dispatchEvent(new CustomEvent('puffer-state-change'));
       // 用户操作触发推送；但推送/轮询内部保存时用 silent 跳过，
@@ -432,6 +435,18 @@
 
   // 仅返回未软删除的条目（共享模式下删除通过 deleted 标记同步，避免被对方覆盖回来）
   function live(arr) { return (arr || []).filter(x => !x.deleted); }
+
+  function updateInteractionHistory() {
+    const date = todayKey();
+    const fortune = state.fortune && state.fortune.date === date ? state.fortune.by || {} : {};
+    const todos = live(state.todos).filter(item => item.date === date);
+    const todosDone = !todos.length || todos.every(item => item.done);
+    const messageOnDate = item => { const d = new Date(item.createdAt); return item.author && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === date; };
+    const complete = person => !!fortune[person] && !!state.dailyStatus?.[date]?.[person]?.mood && live(state.messages).some(item => item.author === person && messageOnDate(item)) && todosDone;
+    if (complete('a') && complete('b') && !state.interactionHistory[date]) state.interactionHistory[date] = { completedAt: Date.now(), a: true, b: true };
+    const cutoff = new Date(Date.now() - 370 * 86400000).toISOString().slice(0, 10);
+    Object.keys(state.interactionHistory).forEach(key => { if (key < cutoff) delete state.interactionHistory[key]; });
+  }
 
   // ==========================================
   // 2. 路由 / 导航
@@ -2312,6 +2327,7 @@
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
       dailyStatus: state.dailyStatus,
+      interactionHistory: state.interactionHistory,
       fortune: state.fortune,
       partners: state.settings.partners,
       fitnessPlan: state.fitnessPlan,
@@ -2367,6 +2383,15 @@
     return out;
   }
 
+  function mergeInteractionHistory(local, remote) {
+    const out = Object.assign({}, local || {});
+    Object.entries(remote || {}).forEach(([date, value]) => {
+      const previous = out[date];
+      if (!previous || Number(value?.completedAt || 0) > Number(previous?.completedAt || 0)) out[date] = value;
+    });
+    return out;
+  }
+
   function mergeState(local, remote) {
     if (!remote) return;
     Object.assign(local, {
@@ -2387,6 +2412,7 @@
         return out;
       })(),
       dailyStatus: mergeDailyStatus(local.dailyStatus, remote.dailyStatus),
+      interactionHistory: mergeInteractionHistory(local.interactionHistory, remote.interactionHistory),
       // 祈福抽签：两人各自抽，按 by.a/by.b 的 ts 取新（同一日期）
       fortune: mergeFortune(local.fortune, remote.fortune),
     });
