@@ -50,8 +50,14 @@ async function handle(request, env) {
     if (!meta) return json({ error: 'not_found' }, 404, cors);
     if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
     const rec = await env.BENCH.get(dataKey, { type: 'json' });
+    // KV 的两个 key 可能在不同边缘节点短暂不同步。
+    // 因此客户端只能以“实际数据记录”携带的版本为准，不能把 meta 的
+    // 较新版本和旧 data 混在一起返回；否则客户端会记住一个未拿到内容的
+    // 版本号，之后错误地跳过真正的新数据。
+    const dataRev = Number(rec && rec.rev) || 0;
+    const dataUpdatedAt = Number(rec && rec.updatedAt) || 0;
     return json(
-      { ok: true, schemaVersion: 1, roomId: room, data: rec ? rec.data : null, rev: meta.rev, updatedAt: meta.updatedAt },
+      { ok: true, schemaVersion: 1, roomId: room, data: rec ? rec.data : null, rev: dataRev, updatedAt: dataUpdatedAt },
       200, cors
     );
   }
@@ -72,8 +78,10 @@ async function handle(request, env) {
     }
     const rev = (meta ? meta.rev : 0) + 1;
     const now = Date.now();
-    await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
+    // 先写完整数据，再公布新版本。即使 KV 复制存在短暂延迟，GET 仍会以
+    // dataKey 的 rev 为准，客户端会继续轮询，直到拿到这份实际内容。
     await env.BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
+    await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
     // D1 is an index for the future relational migration. KV remains the source of truth
     // until room records are normalized and migrated in a separate, reversible step.
     if (env.DB) {
