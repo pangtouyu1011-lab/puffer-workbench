@@ -14,6 +14,7 @@ const cors = {
 
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
 const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
 
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), {
@@ -33,9 +34,40 @@ async function handle(request, env) {
     return json({ ok: true, storage: { kv: true, d1: !!env.DB } }, 200, cors);
   }
 
+  // R2 保持私有：浏览器只经由 Worker 读写，桶本身不开放公网。
+  // 读取 URL 使用不可猜测的对象键作为能力地址，不把房间口令写进同步数据。
+  const publicMedia = url.pathname.match(/^\/api\/v1\/media\/(media\/[A-Za-z0-9-]+\.jpg)$/);
+  if (publicMedia && request.method === 'GET') {
+    if (!env.MEDIA) return json({ error: 'media_unavailable' }, 503, cors);
+    const object = await env.MEDIA.get(publicMedia[1]);
+    if (!object) return json({ error: 'not_found' }, 404, cors);
+    const headers = new Headers(cors);
+    object.writeHttpMetadata(headers);
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    headers.set('ETag', object.httpEtag);
+    return new Response(object.body, { status: 200, headers });
+  }
+
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
   const legacy = url.pathname.match(/^\/api\/([^/]+)$/);
   const m = v1 || legacy;
+  const mediaUpload = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/media$/);
+  if (mediaUpload && request.method === 'POST') {
+    if (!env.MEDIA) return json({ error: 'media_unavailable' }, 503, cors);
+    const room = decodeURIComponent(mediaUpload[1]);
+    const pass = url.searchParams.get('pass') || '';
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
+    const contentLength = Number(request.headers.get('content-length') || 0);
+    if (contentLength && contentLength > MAX_MEDIA_UPLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
+    const bytes = await request.arrayBuffer();
+    if (!bytes.byteLength) return json({ error: 'data_required' }, 400, cors);
+    if (bytes.byteLength > MAX_MEDIA_UPLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
+    const key = 'media/' + crypto.randomUUID() + '.jpg';
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' } });
+    return json({ ok: true, key, url: url.origin + '/api/v1/media/' + key }, 201, cors);
+  }
   if (!m) return json({ error: 'not_found' }, 404, cors);
 
   const room = decodeURIComponent(m[1]);

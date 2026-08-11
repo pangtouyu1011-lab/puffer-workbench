@@ -14,3 +14,7 @@ id = "773e10e804bb4c0d9c9b24273b37e258"
 binding = "DB"
 database_name = "pufferwork-db"
 database_id = "00a045d4-22f1-4905-a426-9bcaca9d0fae"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "pufferwork-media-private"

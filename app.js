@@ -94,6 +94,24 @@
     }
     return true;
   }
+  async function storeRoomImage(dataUrl) {
+    const room = state.settings.room || {};
+    // 未加入 Worker 房间时仍允许仅本机保存，保持离线记录体验。
+    if (!room.joined || room.backend === 'supabase') {
+      if (!canAddEmbeddedImage(dataUrl)) return null;
+      return { dataUrl, url: '' };
+    }
+    const base = String(room.url || '').replace(/\/$/, '');
+    const endpoint = `${base}/api/v1/rooms/${encodeURIComponent(room.id)}/media?pass=${encodeURIComponent(room.pass)}`;
+    const blob = await (await fetch(dataUrl)).blob();
+    const res = await syncFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob }, SYNC_UPLOAD_TIMEOUT_MS);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.url) {
+      if (body.error === 'payload_too_large') throw new Error('图片过大，请换一张或裁剪后再试');
+      throw new Error('图片上传失败，请检查网络后重试');
+    }
+    return { dataUrl: '', url: body.url };
+  }
 
   const APPLE_PLAYLIST_URL = 'https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6';
   const NETEASE_PLAYLIST_URL = 'https://music.163.com/playlist?id=162638755';
@@ -2878,8 +2896,8 @@
     exportTodos() { exportTodosToCalendar(live(state.todos).filter(t=>t.date),'情侣工作台待办'); return true; },
     addMessage(text) { const value = String(text || '').trim(); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
-    async addMessageFile(file, text) { const value = String(text || '').trim(); if (!file && !value) return false; const image = file ? await compressRoomImage(file) : ''; if (image && !canAddEmbeddedImage(image)) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
-    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); if (!canAddEmbeddedImage(dataUrl)) return false; state.gallery.push({ id: uid(), dataUrl, url: '', caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addMessageFile(file, text) { const value = String(text || '').trim(); if (!file && !value) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); const stored = await storeRoomImage(dataUrl); if (!stored) return false; state.gallery.push({ id: uid(), dataUrl: stored.dataUrl, url: stored.url, caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');
