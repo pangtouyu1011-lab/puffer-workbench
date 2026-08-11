@@ -55,13 +55,34 @@
   });
 
   const GALLERY_MAX = 5;
-  // Images still travel with the room payload until R2 is available. Keep a clear
-  // safety margin below typical browser storage and the Worker KV payload ceiling.
+  // Worker rooms upload new images to R2. Embedded images remain only as an
+  // offline/Supabase fallback, so keep a clear safety margin for that case.
   const EMBEDDED_IMAGE_MAX_BYTES = 500 * 1024;
   const LOCAL_STORAGE_WARN_BYTES = Math.floor(3.8 * 1024 * 1024);
   const LOCAL_STORAGE_HARD_BYTES = Math.floor(4.5 * 1024 * 1024);
   const ROOM_PAYLOAD_WARN_BYTES = Math.floor(6.4 * 1024 * 1024);
   const ROOM_PAYLOAD_HARD_BYTES = Math.floor(7.2 * 1024 * 1024);
+  // Text is kept in the room payload. Validate on every write path instead of
+  // truncating history, so a large paste cannot unexpectedly block future sync.
+  const TEXT_LIMITS = Object.freeze({
+    message: 1200,
+    todo: 160,
+    trainingContent: 800,
+    trainingMeta: 80,
+    trainingNote: 800,
+    wish: 160,
+    moodNote: 240,
+    photoCaption: 200,
+    imageUrl: 2048
+  });
+  function textWithinLimit(value, max, label) {
+    const text = String(value == null ? '' : value).trim();
+    if (text.length > max) {
+      toast(`${label}最多 ${max} 个字`, 'error');
+      return null;
+    }
+    return text;
+  }
   const byteSize = value => new TextEncoder().encode(String(value || '')).byteLength;
   const formatBytes = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   function currentStorageUsage() {
@@ -750,6 +771,9 @@
       const url = $('#galUrl').value.trim();
       const cap = $('#galCap').value.trim();
       const file = $('#galFile').files[0];
+      const safeUrl = textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接');
+      const safeCaption = textWithinLimit(cap, TEXT_LIMITS.photoCaption, '照片说明');
+      if (safeUrl === null || safeCaption === null) return;
       if (live(state.gallery).length >= GALLERY_MAX) {
         toast('最多只能保存 ' + GALLERY_MAX + ' 张照片，请先删除', 'error');
         return;
@@ -761,11 +785,11 @@
           // 仅离线或未加入房间时才保留压缩 data URL，避免兼容入口重新撑大 KV 快照。
           const stored = await storeRoomImage(dataUrl);
           if (!stored) return;
-          state.gallery.push({ id: uid(), dataUrl: stored.dataUrl || '', url: stored.url || '', caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
+          state.gallery.push({ id: uid(), dataUrl: stored.dataUrl || '', url: stored.url || '', caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() });
           save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
         }).catch((error) => toast(error && error.message ? error.message : '图片处理失败', 'error'));
-      } else if (url) {
-        state.gallery.push({ id: uid(), dataUrl: '', url: url, caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
+      } else if (safeUrl) {
+        state.gallery.push({ id: uid(), dataUrl: '', url: safeUrl, caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() });
         save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
       } else {
         toast('请选择图片或填链接', 'error');
@@ -826,7 +850,9 @@
     const ta = $('#msgInput');
     const text = ta.value.trim();
     if (!text) { toast('写点什么吧', 'error'); return; }
-    state.messages.push({ id: uid(), author: state.settings.me || 'a', text: text, createdAt: Date.now(), updatedAt: Date.now() });
+    const safeText = textWithinLimit(text, TEXT_LIMITS.message, '留言');
+    if (safeText === null) return;
+    state.messages.push({ id: uid(), author: state.settings.me || 'a', text: safeText, createdAt: Date.now(), updatedAt: Date.now() });
     save(); ta.value = ''; renderMessages(); scheduleRoomPush(); toast('已发送 💌');
   }
 
@@ -917,10 +943,12 @@
     const ta = $('#wishText');
     const text = ta.value.trim();
     if (!text) { toast('写点什么吧', 'error'); return; }
+    const safeText = textWithinLimit(text, TEXT_LIMITS.wish, '心愿');
+    if (safeText === null) return;
     const sel = $('#wishIconPick .wish-icon-opt.sel');
     state.wishes.push({
       id: uid(),
-      text: text,
+      text: safeText,
       icon: sel ? sel.dataset.icon : '✨',
       anonymous: $('#wishAnonymous') ? $('#wishAnonymous').checked : true,
       author: state.settings.me || 'a',
@@ -1478,13 +1506,15 @@
       const p = (document.querySelector('input[name="prio"]:checked') || {}).value || 'none';
       const date = $('#todoDate').value.trim();
       if (!text) { toast('内容不能为空', 'error'); return; }
+      const safeText = textWithinLimit(text, TEXT_LIMITS.todo, '待办');
+      if (safeText === null) return;
       if (editing) {
-        editing.text = text;
+        editing.text = safeText;
         editing.priority = p;
         editing.date = date || '';
         editing.updatedAt = Date.now();
       } else {
-        state.todos.push({ id: uid(), text, priority: p, date: date || '', done: false, createdAt: Date.now(), updatedAt: Date.now() });
+        state.todos.push({ id: uid(), text: safeText, priority: p, date: date || '', done: false, createdAt: Date.now(), updatedAt: Date.now() });
       }
       save();
       closeModal();
@@ -1909,11 +1939,17 @@
       const duration = $('#trainDuration').value.trim();
       const note = $('#trainNote').value.trim();
       if (!content) { toast('请填写训练内容', 'error'); return; }
+      const safeMuscle = textWithinLimit(muscle, TEXT_LIMITS.trainingMeta, '训练部位');
+      const safeContent = textWithinLimit(content, TEXT_LIMITS.trainingContent, '训练内容');
+      const safeWeight = textWithinLimit(weight, TEXT_LIMITS.trainingMeta, '训练重量');
+      const safeDuration = textWithinLimit(duration, TEXT_LIMITS.trainingMeta, '训练时长');
+      const safeNote = textWithinLimit(note, TEXT_LIMITS.trainingNote, '训练备注');
+      if ([safeMuscle, safeContent, safeWeight, safeDuration, safeNote].some(value => value === null)) return;
       if (editing) {
-        Object.assign(editing, { muscle, date, content, weight, duration, note, updatedAt: Date.now() });
+        Object.assign(editing, { muscle: safeMuscle, date, content: safeContent, weight: safeWeight, duration: safeDuration, note: safeNote, updatedAt: Date.now() });
       } else {
         state.trainings.push({
-          id: uid(), muscle, date, content, weight, duration, note,
+          id: uid(), muscle: safeMuscle, date, content: safeContent, weight: safeWeight, duration: safeDuration, note: safeNote,
           createdAt: Date.now(), updatedAt: Date.now()
         });
       }
@@ -2905,19 +2941,19 @@
     getPresence() { return presenceUi(); },
     refreshPresence() { refreshPresenceLocation(true); return true; },
     setLocationSharing(enabled) { return setLocationSharing(!!enabled); },
-    setDailyStatus(person, mood, text) { const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: String(text || '').trim(), updatedAt: Date.now() }; save(); },
-    addTodo(input) { const text = String(input && input.text || '').trim(); if (!text) return false; state.todos.push({ id: uid(), text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
-    updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = String(input && input.text || '').trim(); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },
+    setDailyStatus(person, mood, text) { const safeText = textWithinLimit(text, TEXT_LIMITS.moodNote, '状态说明'); if (safeText === null) return false; const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: safeText, updatedAt: Date.now() }; save(); return true; },
+    addTodo(input) { const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!text) return false; state.todos.push({ id: uid(), text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },
     toggleTodo(id) { const todo = state.todos.find(item => item.id === id && !item.deleted); if (!todo) return false; todo.done = !todo.done; todo.updatedAt = Date.now(); save(); return true; },
-    addTraining(input) { const content = String(input && input.content || '').trim(); if (!content) return false; state.trainings.push({ id:uid(), author:state.settings.me || 'a', muscle:String(input.muscle || 'custom'), date:String(input.date || todayKey()), content, weight:String(input.weight || ''), duration:String(input.duration || ''), note:String(input.note || ''), createdAt:Date.now(), updatedAt:Date.now() }); save(); return true; },
-    updateTraining(id, input) { const item = state.trainings.find(x=>x.id===id&&!x.deleted), content=String(input&&input.content||'').trim(); if(!item||!content)return false; Object.assign(item,{muscle:String(input.muscle||'custom'),date:String(input.date||todayKey()),content,weight:String(input.weight||''),duration:String(input.duration||''),note:String(input.note||''),updatedAt:Date.now()}); save(); return true; },
+    addTraining(input) { const value=input||{}, content=textWithinLimit(value.content, TEXT_LIMITS.trainingContent, '训练内容'), muscle=textWithinLimit(value.muscle || 'custom', TEXT_LIMITS.trainingMeta, '训练部位'), weight=textWithinLimit(value.weight, TEXT_LIMITS.trainingMeta, '训练重量'), duration=textWithinLimit(value.duration, TEXT_LIMITS.trainingMeta, '训练时长'), note=textWithinLimit(value.note, TEXT_LIMITS.trainingNote, '训练备注'); if (!content || [muscle,weight,duration,note].some(v=>v===null)) return false; state.trainings.push({ id:uid(), author:state.settings.me || 'a', muscle, date:String(value.date || todayKey()), content, weight, duration, note, createdAt:Date.now(), updatedAt:Date.now() }); save(); return true; },
+    updateTraining(id, input) { const item = state.trainings.find(x=>x.id===id&&!x.deleted), value=input||{}, content=textWithinLimit(value.content, TEXT_LIMITS.trainingContent, '训练内容'), muscle=textWithinLimit(value.muscle || 'custom', TEXT_LIMITS.trainingMeta, '训练部位'), weight=textWithinLimit(value.weight, TEXT_LIMITS.trainingMeta, '训练重量'), duration=textWithinLimit(value.duration, TEXT_LIMITS.trainingMeta, '训练时长'), note=textWithinLimit(value.note, TEXT_LIMITS.trainingNote, '训练备注'); if(!item || !content || [muscle,weight,duration,note].some(v=>v===null))return false; Object.assign(item,{muscle,date:String(value.date||todayKey()),content,weight,duration,note,updatedAt:Date.now()}); save(); return true; },
     deleteTraining(id) { const item=state.trainings.find(x=>x.id===id&&!x.deleted); if(!item)return false; item.deleted=true;item.updatedAt=Date.now();save();return true; },
     updateFitnessPlan(plan) { if(!plan||typeof plan!=='object')return false; Object.keys(plan).forEach(day=>{const name=String(plan[day]||'').trim();if(name)state.fitnessPlan[day]={name,muscle:name.includes('休')?'rest':'custom',desc:name.includes('休')?'好好休息':'自定义训练日',updatedAt:Date.now()};});save();return true; },
-    addWish(input) { const text=String(input&&input.text||'').trim();if(!text)return false;state.wishes.push({id:uid(),text,icon:String(input.icon||'✨'),anonymous:!!(input&&input.anonymous),author:state.settings.me||'a',color:'peach',tilt:'0',createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
+    addWish(input) { const text=textWithinLimit(input&&input.text, TEXT_LIMITS.wish, '心愿');if(!text)return false;state.wishes.push({id:uid(),text,icon:String(input.icon||'✨'),anonymous:!!(input&&input.anonymous),author:state.settings.me||'a',color:'peach',tilt:'0',createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     deleteWish(id) { const item=state.wishes.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteMessage(id) { const item=state.messages.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
-    addGalleryUrl(url, caption) { const value=String(url||'').trim();if(!value||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),dataUrl:'',url:value,caption:String(caption||'').trim(),createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
+    addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     addWater(delta) { addWater(Number(delta)||0); return todayWater(); },
     setIdentity(me) { if(me!=='a'&&me!=='b')return false;state.settings.me=me;save();return true; },
     setNotifySystem(on) { state.settings.notifySystem=!!on;save();if(on&&'Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});return state.settings.notifySystem; },
@@ -2929,10 +2965,10 @@
     exportBackup() { exportJSON(); return true; },
     importBackup() { importJSON(); return true; },
     exportTodos() { exportTodosToCalendar(live(state.todos).filter(t=>t.date),'情侣工作台待办'); return true; },
-    addMessage(text) { const value = String(text || '').trim(); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    addMessage(text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
-    async addMessageFile(file, text) { const value = String(text || '').trim(); if (!file && !value) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
-    async addGalleryFile(file, caption) { if (!file || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); const stored = await storeRoomImage(dataUrl); if (!stored) return false; state.gallery.push({ id: uid(), author: state.settings.me || 'a', dataUrl: stored.dataUrl, url: stored.url, caption: String(caption || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addMessageFile(file, text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (value === null || (!file && !value)) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addGalleryFile(file, caption) { const safeCaption = textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明'); if (!file || safeCaption === null || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); const stored = await storeRoomImage(dataUrl); if (!stored) return false; state.gallery.push({ id: uid(), author: state.settings.me || 'a', dataUrl: stored.dataUrl, url: stored.url, caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');
