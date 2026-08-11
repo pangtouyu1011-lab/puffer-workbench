@@ -2330,6 +2330,11 @@
     const cutoff = new Date(now - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     return Object.fromEntries(Object.entries(water && typeof water === 'object' ? water : {}).filter(([date]) => date >= cutoff));
   }
+  // 心情只供近期回看和当日陪伴使用；同步包保留约 13 个月，避免每天一条状态无限增长。
+  function compactRoomDailyStatus(status, now = Date.now()) {
+    const cutoff = new Date(now - 400 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return Object.fromEntries(Object.entries(status && typeof status === 'object' ? status : {}).filter(([date, value]) => date >= cutoff && value && typeof value === 'object'));
+  }
   function compactRoomState() {
     // 本地状态不做物理截断，避免加载或定期清理时静默丢失历史数据。
     // 仅在 serializeRoom() 构造同步 payload 时做有界压缩。
@@ -2346,7 +2351,7 @@
       meals: compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now),
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
-      dailyStatus: state.dailyStatus,
+      dailyStatus: compactRoomDailyStatus(state.dailyStatus, now),
       interactionHistory: state.interactionHistory,
       fortune: state.fortune,
       partners: state.settings.partners,

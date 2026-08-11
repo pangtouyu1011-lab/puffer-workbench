@@ -15,6 +15,86 @@ const cors = {
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
 const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
+const COMPANION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function companionSlot(now = new Date()) {
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 11) return 'morning';
+  if (hour >= 11 && hour < 14) return 'noon';
+  if (hour >= 14 && hour < 18) return 'afternoon';
+  if (hour >= 18 && hour < 20) return 'evening';
+  return 'night';
+}
+
+function companionDay(now = new Date()) {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function companionFallback(summary) {
+  const lines = {
+    morning: summary.todoCount ? `早上慢慢来，先从今天的第一件小事开始。` : '早上慢慢来，今天也给彼此留一点轻松。',
+    noon: summary.partnerMood ? `到中午啦，先吃饭休息一会儿。TA 今天是「${summary.partnerMood}」。` : '到中午啦，先吃饭休息一会儿，也记得喝水。',
+    afternoon: summary.todoCount ? `下午加油，先喝几口水，剩下的事慢慢做。` : '下午也别太赶，喝几口水再继续。',
+    evening: summary.todayMoments ? '傍晚好，今天已经留下了一点共同生活。' : '傍晚好，有空时和 TA 说说今天的小事吧。',
+    night: summary.todayMoments ? '今天的小瞬间已经收好啦，晚点一起回顾吧。' : '今天也辛苦了，想说的话可以留到晚安前。'
+  };
+  return lines[summary.slot] || lines.night;
+}
+
+function companionSummary(data, now = new Date()) {
+  const day = companionDay(now);
+  const active = list => Array.isArray(list) ? list.filter(item => item && !item.deleted) : [];
+  const sameDay = value => {
+    const date = new Date(Number(value) || 0);
+    return !Number.isNaN(date.getTime()) && companionDay(date) === day;
+  };
+  const todos = active(data?.todos).filter(item => item.date === day && !item.done);
+  const messages = active(data?.messages).filter(item => sameDay(item.createdAt)).length;
+  const photos = active(data?.gallery).filter(item => sameDay(item.createdAt)).length;
+  const statuses = data?.dailyStatus?.[day] || {};
+  const moods = ['a', 'b'].map(person => String(statuses[person]?.mood || '').trim()).filter(Boolean);
+  return { slot: companionSlot(now), todoCount: todos.length, todayMoments: messages + photos, moodCount: moods.length, partnerMood: moods[0] || '' };
+}
+
+function cleanCompanionLine(value, fallback) {
+  const line = String(value || '').replace(/[\r\n]+/g, '').replace(/[“”"']/g, '').trim();
+  return line && line.length <= 46 ? line : fallback;
+}
+
+async function getCompanionLine(env, room, data) {
+  const now = new Date();
+  const day = companionDay(now);
+  const slot = companionSlot(now);
+  const summary = companionSummary(data, now);
+  const fallback = companionFallback(summary);
+  if (!env.DB) return { line: fallback, source: 'rule', day, slot };
+  const cached = await env.DB.prepare(
+    'SELECT line FROM companion_lines WHERE room_id = ? AND day = ? AND slot = ?'
+  ).bind(room, day, slot).first();
+  if (cached?.line) return { line: cached.line, source: 'cache', day, slot };
+  if (!env.AI) return { line: fallback, source: 'rule', day, slot };
+  try {
+    const result = await env.AI.run(COMPANION_MODEL, {
+      messages: [
+        { role: 'system', content: '你是情侣生活工作台里的胖头鱼。只写一句温柔、自然、克制的中文问候，14到34个汉字。不编造事实，不评价关系，不提及隐私，不使用表情符号、引号或标题。' },
+        { role: 'user', content: `现在是${slot}。今天待办剩余${summary.todoCount}件；今天共同瞬间${summary.todayMoments}个；已记录心情${summary.moodCount}人；可参考心情${summary.partnerMood || '未记录'}。请只返回一句问候。` }
+      ],
+      temperature: 0.75,
+      max_tokens: 80
+    });
+    const line = cleanCompanionLine(result?.response, fallback);
+    await env.DB.prepare(
+      'INSERT INTO companion_lines (room_id, day, slot, line, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, day, slot) DO NOTHING'
+    ).bind(room, day, slot, line, Date.now()).run();
+    // AI 问候只是短期展示缓存，半年后自动清理，避免 D1 无限制累积。
+    if (slot === 'morning') {
+      await env.DB.prepare('DELETE FROM companion_lines WHERE created_at < ?').bind(Date.now() - 180 * 24 * 60 * 60 * 1000).run();
+    }
+    return { line, source: 'ai', day, slot };
+  } catch (_) {
+    return { line: fallback, source: 'rule', day, slot };
+  }
+}
 
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), {
@@ -31,7 +111,7 @@ async function handle(request, env) {
   }
 
   if (url.pathname === '/health') {
-    return json({ ok: true, storage: { kv: true, d1: !!env.DB } }, 200, cors);
+    return json({ ok: true, storage: { kv: true, d1: !!env.DB }, ai: !!env.AI }, 200, cors);
   }
 
   // R2 保持私有：浏览器只经由 Worker 读写，桶本身不开放公网。
@@ -79,6 +159,21 @@ async function handle(request, env) {
       return { person: id, lastSeen: Number(rec.lastSeen) || 0, online: now - Number(rec.lastSeen || 0) <= 90000, location: rec.location || null };
     }));
     return json({ ok: true, now, presence: records }, 200, cors);
+  }
+
+  const companionPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/companion$/);
+  if (companionPath && request.method === 'POST') {
+    const room = decodeURIComponent(companionPath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const pass = String(body?.pass || '');
+    if (!room || room.length > 64) return json({ error: 'bad_room' }, 400, cors);
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
+    const rec = await env.BENCH.get('room:' + room, { type: 'json' });
+    const result = await getCompanionLine(env, room, rec?.data || {});
+    return json({ ok: true, ...result }, 200, cors);
   }
 
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
