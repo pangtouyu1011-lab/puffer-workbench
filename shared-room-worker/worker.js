@@ -15,7 +15,62 @@ const cors = {
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
 const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_D1_RECORD_BYTES = 900 * 1024;
+const D1_MIRROR_BATCH_SIZE = 250;
 const COMPANION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function roomMirrorRecords(data, revision, now) {
+  const records = [];
+  const add = (type, id, value, fallbackUpdatedAt = now) => {
+    if (id == null || value == null) return;
+    let payload;
+    try { payload = JSON.stringify(value); } catch (_) { return; }
+    if (new TextEncoder().encode(payload).byteLength > MAX_D1_RECORD_BYTES) return;
+    const createdAt = Number(value?.createdAt) || Number(fallbackUpdatedAt) || now;
+    const updatedAt = Number(value?.updatedAt) || Number(fallbackUpdatedAt) || now;
+    records.push({ type, id: String(id), payload, createdAt, updatedAt, deleted: value?.deleted ? 1 : 0 });
+  };
+  const arrays = ['todos', 'trainings', 'messages', 'gallery', 'meals', 'wishes'];
+  arrays.forEach(type => {
+    (Array.isArray(data?.[type]) ? data[type] : []).forEach(item => add(type, item?.id, item));
+  });
+  Object.entries(data?.dailyStatus || {}).forEach(([date, people]) => {
+    Object.entries(people || {}).forEach(([person, value]) => add('daily_status', `${date}:${person}`, { date, person, ...value }));
+  });
+  Object.entries(data?.water || {}).forEach(([date, value]) => add('water', date, { date, value }));
+  Object.entries(data?.interactionHistory || {}).forEach(([date, value]) => add('interaction_history', date, { date, ...value }));
+  const fortune = data?.fortune;
+  if (fortune?.date) Object.entries(fortune.by || {}).forEach(([person, value]) => {
+    if (value) add('fortune', `${fortune.date}:${person}`, { date: fortune.date, person, value }, value.ts || now);
+  });
+  Object.entries(data?.fitnessPlan || {}).forEach(([day, value]) => add('fitness_plan', day, { day, ...value }));
+  if (data?.partners && typeof data.partners === 'object') add('partners', 'current', data.partners);
+  return records;
+}
+
+async function mirrorRoomToD1(env, room, revision, updatedAt, data) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
+    ).bind(room, revision, updatedAt, 'kv+d1-mirror').run();
+    const records = roomMirrorRecords(data, revision, updatedAt);
+    const statement = env.DB.prepare(
+      'INSERT INTO room_records (room_id, record_type, record_id, payload, created_at, updated_at, deleted, last_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(room_id, record_type, record_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at, deleted = excluded.deleted, last_revision = excluded.last_revision ' +
+      'WHERE room_records.payload <> excluded.payload OR room_records.deleted <> excluded.deleted'
+    );
+    for (let index = 0; index < records.length; index += D1_MIRROR_BATCH_SIZE) {
+      const batch = records.slice(index, index + D1_MIRROR_BATCH_SIZE).map(record => statement.bind(
+        room, record.type, record.id, record.payload, record.createdAt, record.updatedAt, record.deleted, revision
+      ));
+      if (batch.length) await env.DB.batch(batch);
+    }
+  } catch (_) {
+    // D1 is currently a mirror only. Its failure must never delay or fail KV sync.
+  }
+}
 
 function companionSlot(now = new Date()) {
   const hour = now.getHours();
@@ -103,7 +158,7 @@ function json(obj, status, headers) {
   });
 }
 
-async function handle(request, env) {
+async function handle(request, env, ctx) {
   const url = new URL(request.url);
 
   if (request.method === 'OPTIONS') {
@@ -249,18 +304,11 @@ async function handle(request, env) {
     // dataKey 的 rev 为准，客户端会继续轮询，直到拿到这份实际内容。
     await env.BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
     await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
-    // D1 is an index for the future relational migration. KV remains the source of truth
-    // until room records are normalized and migrated in a separate, reversible step.
-    if (env.DB) {
-      try {
-        await env.DB.prepare(
-          'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
-          'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
-        ).bind(room, rev, now, 'kv').run();
-      } catch (_) {
-        // Indexing failure must never interrupt the existing room sync path.
-      }
-    }
+    // KV remains the source of truth. D1 mirrors records after the KV write and
+    // runs in the background, so it cannot delay or interrupt the existing sync.
+    const mirror = mirrorRoomToD1(env, room, rev, now, body.data);
+    if (ctx?.waitUntil) ctx.waitUntil(mirror);
+    else mirror.catch(() => {});
     return json({ ok: true, schemaVersion: 1, roomId: room, rev, updatedAt: now }, 200, cors);
   }
 
@@ -268,7 +316,7 @@ async function handle(request, env) {
 }
 
 export default {
-  fetch(request, env) {
-    return handle(request, env);
+  fetch(request, env, ctx) {
+    return handle(request, env, ctx);
   }
 };
