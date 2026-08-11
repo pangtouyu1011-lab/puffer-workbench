@@ -1048,6 +1048,7 @@
   function toast(msg, type = 'success') {
     const el = $('#toast');
     el.textContent = msg;
+    el.title = msg;
     el.className = 'toast show ' + type;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.className = 'toast'; }, 2200);
@@ -2566,7 +2567,7 @@
         if (e.message !== '房间不存在' || !allowCreate) {
           r.lastError = e.message || '未知错误';
           updateRoomStatus();
-          toast('上传未完成，内容已保留在本机并会自动重试。原因：' + e.message, 'error');
+          toast('上传未完成，内容已保存在本机，将自动重试', 'error');
           syncFailed = true;
           scheduleSyncRetry();
           return false;
@@ -2595,7 +2596,7 @@
         }
         conflictRetryCount = 0;
         r.lastError = e.message || '未知错误';
-        toast('上传未完成，内容已保留在本机并会自动重试。原因：' + e.message, 'error');
+        toast('上传未完成，内容已保存在本机，将自动重试', 'error');
         syncFailed = true; scheduleSyncRetry();
         return false;
       }
@@ -2640,7 +2641,7 @@
       r.lastError = message;
       updateRoomStatus();
       updateSyncPill();
-      if (changed) toast('暂时无法检查房间更新，正在后台重试。原因：' + message, 'error');
+      if (changed) toast('暂时无法检查更新，正在后台重试', 'error');
       // 轮询本身会继续重试，不要把拉取失败误当成写入失败再触发上传
     }
   }
@@ -2709,7 +2710,7 @@
       startRoomPolling();
       updateSyncPill();
       updateRoomStatus();
-      toast('已连接房间「' + r.id + '」，已有内容正在自动同步。', 'success');
+      toast('已连接 #' + r.id + '，正在同步已有内容', 'success');
       closeModal();
     } else {
       r.joined = false; save();
@@ -2729,7 +2730,7 @@
       startRoomPolling();
       updateSyncPill();
       updateRoomStatus();
-      toast('已创建并连接房间「' + r.id + '」。', 'success');
+      toast('已创建并连接 #' + r.id, 'success');
       closeModal();
     } else {
       r.joined = false; save();
