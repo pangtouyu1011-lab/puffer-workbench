@@ -17,7 +17,38 @@ const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_D1_RECORD_BYTES = 900 * 1024;
 const D1_MIRROR_BATCH_SIZE = 250;
+const MEDIA_ORPHAN_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
+const MEDIA_CLEANUP_BATCH_SIZE = 50;
 const COMPANION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function mediaKeysInPayload(payload) {
+  const keys = new Set();
+  const pattern = /\/api\/v1\/media\/(media\/[A-Za-z0-9-]+\.jpg)/g;
+  let match;
+  while ((match = pattern.exec(payload))) keys.add(match[1]);
+  return [...keys];
+}
+
+async function cleanupOrphanMedia(env, now = Date.now()) {
+  if (!env.DB || !env.MEDIA) return;
+  const cutoff = now - MEDIA_ORPHAN_GRACE_MS;
+  const candidates = await env.DB.prepare(
+    'SELECT object_key FROM media_objects WHERE created_at < ? AND NOT EXISTS (' +
+    'SELECT 1 FROM media_references WHERE media_references.object_key = media_objects.object_key AND media_references.active = 1' +
+    ') ORDER BY created_at ASC LIMIT ?'
+  ).bind(cutoff, MEDIA_CLEANUP_BATCH_SIZE).all();
+  for (const row of candidates.results || []) {
+    const key = String(row.object_key || '');
+    if (!key) continue;
+    // The object is registered by this lifecycle system, older than the grace
+    // period, and has no active room record. Delete R2 first, then its metadata.
+    await env.MEDIA.delete(key);
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM media_references WHERE object_key = ?').bind(key),
+      env.DB.prepare('DELETE FROM media_objects WHERE object_key = ?').bind(key)
+    ]);
+  }
+}
 
 function roomMirrorRecords(data, revision, now) {
   const records = [];
@@ -64,6 +95,22 @@ async function mirrorRoomToD1(env, room, revision, updatedAt, data) {
     for (let index = 0; index < records.length; index += D1_MIRROR_BATCH_SIZE) {
       const batch = records.slice(index, index + D1_MIRROR_BATCH_SIZE).map(record => statement.bind(
         room, record.type, record.id, record.payload, record.createdAt, record.updatedAt, record.deleted, revision
+      ));
+      if (batch.length) await env.DB.batch(batch);
+    }
+    const referenceRows = [];
+    records.forEach(record => {
+      mediaKeysInPayload(record.payload).forEach(objectKey => referenceRows.push({
+        objectKey, type: record.type, id: record.id, active: record.deleted ? 0 : 1
+      }));
+    });
+    const referenceStatement = env.DB.prepare(
+      'INSERT INTO media_references (object_key, room_id, record_type, record_id, active, last_seen_at) VALUES (?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(object_key, room_id, record_type, record_id) DO UPDATE SET active = excluded.active, last_seen_at = excluded.last_seen_at'
+    );
+    for (let index = 0; index < referenceRows.length; index += D1_MIRROR_BATCH_SIZE) {
+      const batch = referenceRows.slice(index, index + D1_MIRROR_BATCH_SIZE).map(reference => referenceStatement.bind(
+        reference.objectKey, room, reference.type, reference.id, reference.active, updatedAt
       ));
       if (batch.length) await env.DB.batch(batch);
     }
@@ -249,6 +296,14 @@ async function handle(request, env, ctx) {
     if (bytes.byteLength > MAX_MEDIA_UPLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
     const key = 'media/' + crypto.randomUUID() + '.jpg';
     await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' } });
+    // Lifecycle registration is best-effort. If D1 is unavailable, preserve the
+    // uploaded image rather than failing a user's photo/message upload.
+    if (env.DB) {
+      try {
+        await env.DB.prepare('INSERT OR IGNORE INTO media_objects (object_key, room_id, created_at) VALUES (?, ?, ?)')
+          .bind(key, room, Date.now()).run();
+      } catch (_) {}
+    }
     return json({ ok: true, key, url: url.origin + '/api/v1/media/' + key }, 201, cors);
   }
   if (!m) return json({ error: 'not_found' }, 404, cors);
@@ -318,5 +373,8 @@ async function handle(request, env, ctx) {
 export default {
   fetch(request, env, ctx) {
     return handle(request, env, ctx);
+  },
+  scheduled(_controller, env, ctx) {
+    ctx.waitUntil(cleanupOrphanMedia(env).catch(() => {}));
   }
 };
