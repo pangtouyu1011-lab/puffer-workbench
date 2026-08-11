@@ -1989,6 +1989,26 @@
   // 11. 同步 / 数据管理
   // ==========================================
   let syncBusy = false;
+  // Presence is deliberately kept outside the room payload: it must not create sync conflicts
+  // or retain exact locations in shared history. The Worker stores only each person's latest point.
+  let roomPresence = {};
+  let presenceTimer = null;
+  let lastPresenceLocation = null;
+  let lastPresenceLocationAt = 0;
+  const PRESENCE_INTERVAL_MS = 30000;
+  const LOCATION_REFRESH_MS = 5 * 60 * 1000;
+  const LOCATION_FRESH_MS = 30 * 60 * 1000;
+  const presenceKey = () => { const r = state.settings?.room || {}; return `puffer-location-share:${r.id || 'local'}:${state.settings?.me || 'a'}`; };
+  const locationSharingEnabled = () => localStorage.getItem(presenceKey()) === '1';
+  function distanceKm(a, b) { const rad = n => n * Math.PI / 180, dLat=rad(b.lat-a.lat), dLon=rad(b.lon-a.lon), q=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2; return 6371 * 2 * Math.atan2(Math.sqrt(q), Math.sqrt(1-q)); }
+  function presenceUi() { const me=state.settings?.me||'a', ta=me==='a'?'b':'a', mine=roomPresence[me]||{}, partner=roomPresence[ta]||{}, ownLoc=mine.location, taLoc=partner.location, fresh=taLoc&&ownLoc&&Date.now()-Number(taLoc.updatedAt||0)<LOCATION_FRESH_MS&&Date.now()-Number(ownLoc.updatedAt||0)<LOCATION_FRESH_MS; return { mine:{ sharing:locationSharingEnabled(), hasLocation:!!ownLoc, locationUpdatedAt:ownLoc?.updatedAt||0 }, partner:{ online:!!partner.online, lastSeen:Number(partner.lastSeen)||0, hasLocation:!!taLoc, locationUpdatedAt:taLoc?.updatedAt||0, distanceKm:fresh?distanceKm(ownLoc,taLoc):null } }; }
+  function emitPresence() { window.dispatchEvent(new CustomEvent('puffer-presence-change')); }
+  async function sendPresence(location = undefined) { if (!roomActive()) return false; const r=state.settings.room; if (r.backend === 'supabase') return false; const base=String(r.url||'').replace(/\/$/, ''), endpoint=`${base}/api/v1/rooms/${encodeURIComponent(r.id)}/presence`; const payload={ pass:r.pass, person:state.settings.me||'a' }; if (location !== undefined) payload.location=location; try { const res=await syncFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},10000); const body=await res.json().catch(()=>({})); if(!res.ok) return false; roomPresence={}; (body.presence||[]).forEach(item=>{roomPresence[item.person]=item;}); emitPresence(); return true; } catch (_) { return false; } }
+  function refreshPresenceLocation(force=false) { if (!locationSharingEnabled()) return sendPresence(); if (!force && lastPresenceLocation && Date.now()-lastPresenceLocationAt<LOCATION_REFRESH_MS) return sendPresence(lastPresenceLocation); if (!navigator.geolocation) return sendPresence(); navigator.geolocation.getCurrentPosition(pos=>{ lastPresenceLocation={lat:pos.coords.latitude,lon:pos.coords.longitude}; lastPresenceLocationAt=Date.now(); sendPresence(lastPresenceLocation); },()=>sendPresence(),{enableHighAccuracy:false,maximumAge:LOCATION_REFRESH_MS,timeout:12000}); }
+  function startPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); refreshPresenceLocation(true); presenceTimer=setInterval(()=>refreshPresenceLocation(false),PRESENCE_INTERVAL_MS); }
+  function stopPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); presenceTimer=null; roomPresence={}; emitPresence(); }
+  function setLocationSharing(enabled) { if (enabled) { localStorage.setItem(presenceKey(),'1'); refreshPresenceLocation(true); return true; } localStorage.removeItem(presenceKey()); lastPresenceLocation=null; lastPresenceLocationAt=0; sendPresence(null); return false; }
+
   function updateSyncPill() {
     const code = state.settings.syncCode;
     const cloud = state.settings.cloudUrl;
@@ -2724,6 +2744,7 @@
     if (roomTimer) clearInterval(roomTimer);
     roomTimer = setInterval(pollRoom, 3000);
     pollRoom();
+    startPresencePolling();
   }
 
   async function joinRoom() {
@@ -2767,6 +2788,7 @@
 
   function leaveRoom() {
     if (roomTimer) { clearInterval(roomTimer); roomTimer = null; }
+    stopPresencePolling();
     state.settings.room.joined = false;
     save();
     updateSyncPill();
@@ -2870,8 +2892,9 @@
   window.addEventListener('online', () => {
     pollRoom();
     if (roomActive()) pushToRoom();
+    refreshPresenceLocation(true);
   });
-  window.addEventListener('focus', () => { pollRoom(); });
+  window.addEventListener('focus', () => { pollRoom(); refreshPresenceLocation(true); });
   updateMsgBadge();
   updateMsgNotifyBtn();
   window.PufferLife = {
@@ -2893,6 +2916,9 @@
     open(page) { goPage(page); },
     getHoroscopes() { return ['gemini','libra'].map(sign => ({ sign, meta: HOROS[sign], data: dailyHoroscope(sign) })); },
     getDailyMusic() { const part = currentMusicDaypart(), neteaseSource = '\u4f60\u4eec\u7684\u7f51\u6613\u4e91\u6b4c\u5355', appleSources = ['\u4f60\u4eec\u7684 Apple Music \u6b4c\u5355', '\u76f8\u4f3c\u63a8\u8350']; return { netease: getMusicSlotSong(part, neteaseSource) || pickMusicFor(part, new Set(), neteaseSource)[0] || null, apple: getMusicSlotSong(part, appleSources) || pickMusicFor(part, new Set(), appleSources)[0] || null }; },
+    getPresence() { return presenceUi(); },
+    refreshPresence() { refreshPresenceLocation(true); return true; },
+    setLocationSharing(enabled) { return setLocationSharing(!!enabled); },
     setDailyStatus(person, mood, text) { const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: String(text || '').trim(), updatedAt: Date.now() }; save(); },
     addTodo(input) { const text = String(input && input.text || '').trim(); if (!text) return false; state.todos.push({ id: uid(), text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = String(input && input.text || '').trim(); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },

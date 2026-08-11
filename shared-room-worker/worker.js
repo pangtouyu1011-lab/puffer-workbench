@@ -48,6 +48,39 @@ async function handle(request, env) {
     return new Response(object.body, { status: 200, headers });
   }
 
+  const presencePath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/presence$/);
+  if (presencePath && request.method === 'POST') {
+    const room = decodeURIComponent(presencePath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const pass = String(body?.pass || '');
+    const person = String(body?.person || '');
+    if (!room || room.length > 64 || !['a', 'b'].includes(person)) return json({ error: 'bad_presence' }, 400, cors);
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
+    const key = `presence:${room}:${person}`;
+    const previous = await env.BENCH.get(key, { type: 'json' }) || {};
+    let location = previous.location || null;
+    if (Object.prototype.hasOwnProperty.call(body, 'location')) {
+      const value = body.location;
+      if (value === null) location = null;
+      else {
+        const lat = Number(value?.lat), lon = Number(value?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return json({ error: 'bad_location' }, 400, cors);
+        location = { lat, lon, updatedAt: Date.now() };
+      }
+    }
+    const now = Date.now();
+    await env.BENCH.put(key, JSON.stringify({ person, lastSeen: now, location }));
+    const records = await Promise.all(['a', 'b'].map(async id => {
+      const rec = await env.BENCH.get(`presence:${room}:${id}`, { type: 'json' });
+      if (!rec) return { person: id, lastSeen: 0, online: false, location: null };
+      return { person: id, lastSeen: Number(rec.lastSeen) || 0, online: now - Number(rec.lastSeen || 0) <= 90000, location: rec.location || null };
+    }));
+    return json({ ok: true, now, presence: records }, 200, cors);
+  }
+
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
   const legacy = url.pathname.match(/^\/api\/([^/]+)$/);
   const m = v1 || legacy;
