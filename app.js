@@ -2822,32 +2822,10 @@
     }
   }
 
-  // 每周自动清理：删除 7 天前的旧待办与旧留言，避免持续占用存储
+  // 历史记录是共同生活的一部分，绝不按时间自动删除。
+  // 同步包大小仍由 serializeRoom() 的边界控制；长期归档将交由 D1，不能以删除留言换空间。
   function runWeeklyCleanup() {
-    const s = state.settings;
-    const now = Date.now();
-    const WEEK = 7 * 24 * 60 * 60 * 1000;
-    // 首次运行只建立基线，不立即删除（避免部署当天误删现有数据）；silent：基线无数据变更，不触发多余推送
-    if (!s.lastClean) { s.lastClean = now; save({ silent: true }); return; }
-    if (now - s.lastClean < WEEK) return; // 未满一周，跳过
-
-    const cutoff = now - WEEK;
-    let delTodos = 0, delMsgs = 0;
-    (state.todos || []).forEach(t => {
-      if (!t.deleted && t.createdAt && t.createdAt < cutoff) { t.deleted = true; t.updatedAt = now; delTodos++; }
-    });
-    (state.messages || []).forEach(m => {
-      if (!m.deleted && m.createdAt && m.createdAt < cutoff) { m.deleted = true; m.updatedAt = now; delMsgs++; }
-    });
-    compactRoomState(now);
-    s.lastClean = now;
-    save(); // save 内部会在已加入房间时自动同步给对方
-    if (delTodos || delMsgs) {
-      const parts = [];
-      if (delTodos) parts.push(delTodos + ' 条旧待办');
-      if (delMsgs) parts.push(delMsgs + ' 条旧留言');
-      toast('🧹 每周清理：已软删除 ' + parts.join('、') + '（7 天前）', 'info');
-    }
+    // 保留调用点以兼容旧版本，但不再自动删除任何待办或留言。
   }
 
   // ==========================================
