@@ -2010,6 +2010,17 @@
     updateSyncPill();
   }
 
+  function describeRemoteChange(before, remoteData) {
+    const labels = { messages: '留言', gallery: '照片', todos: '待办', trainings: '训练记录', wishes: '心愿' };
+    const changes = [];
+    Object.entries(labels).forEach(([key, label]) => {
+      const known = before[key] || new Set();
+      const count = (remoteData && Array.isArray(remoteData[key]) ? remoteData[key] : []).filter(item => item && !item.deleted && !known.has(item.id)).length;
+      if (count) changes.push(`${count} 条${label}`);
+    });
+    return changes.length ? changes.join('、') : '共同内容';
+  }
+
   function safeTransferState() {
     const backup = JSON.parse(JSON.stringify(state));
     const room = backup.settings && backup.settings.room;
@@ -2555,7 +2566,7 @@
         if (e.message !== '房间不存在' || !allowCreate) {
           r.lastError = e.message || '未知错误';
           updateRoomStatus();
-          toast('同步失败：' + e.message, 'error');
+          toast('上传未完成，内容已保留在本机并会自动重试。原因：' + e.message, 'error');
           syncFailed = true;
           scheduleSyncRetry();
           return false;
@@ -2584,7 +2595,7 @@
         }
         conflictRetryCount = 0;
         r.lastError = e.message || '未知错误';
-        toast('同步失败：' + e.message, 'error');
+        toast('上传未完成，内容已保留在本机并会自动重试。原因：' + e.message, 'error');
         syncFailed = true; scheduleSyncRetry();
         return false;
       }
@@ -2614,13 +2625,14 @@
       updateSyncPill();
       updateRoomStatus();
       if (remote.rev === r.lastRev) return; // 无变化
-      const prevIds = new Set(state.messages.map(m => m.id));
+      const before = { messages: new Set(state.messages.map(m => m.id)), gallery: new Set(state.gallery.map(m => m.id)), todos: new Set(state.todos.map(m => m.id)), trainings: new Set(state.trainings.map(m => m.id)), wishes: new Set(state.wishes.map(m => m.id)) };
+      const prevIds = before.messages;
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
       save({ silent: true });
       checkNewMessages(prevIds);
       renderCurrent();
-      toast('已收到对方的更新 ✨');
+      toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
     } catch (e) {
       syncFailed = true;
       const message = e && e.message ? e.message : '网络或服务器错误';
@@ -2628,7 +2640,7 @@
       r.lastError = message;
       updateRoomStatus();
       updateSyncPill();
-      if (changed) toast('自动同步失败：' + message, 'error');
+      if (changed) toast('暂时无法检查房间更新，正在后台重试。原因：' + message, 'error');
       // 轮询本身会继续重试，不要把拉取失败误当成写入失败再触发上传
     }
   }
@@ -2697,7 +2709,7 @@
       startRoomPolling();
       updateSyncPill();
       updateRoomStatus();
-      toast('已加入共享房间 🤝');
+      toast('已连接房间「' + r.id + '」，已有内容正在自动同步。', 'success');
       closeModal();
     } else {
       r.joined = false; save();
@@ -2717,7 +2729,7 @@
       startRoomPolling();
       updateSyncPill();
       updateRoomStatus();
-      toast('新房间已创建 🤝');
+      toast('已创建并连接房间「' + r.id + '」。', 'success');
       closeModal();
     } else {
       r.joined = false; save();
