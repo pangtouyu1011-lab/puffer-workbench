@@ -2,6 +2,7 @@ node_modules/
 .wrangler/
 .DS_Store
 *.log
+assets/*-source.png
 
 .deploy_token
 .git_token_helper.sh
