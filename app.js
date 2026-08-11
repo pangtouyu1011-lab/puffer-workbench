@@ -756,9 +756,12 @@
       }
       if (file) {
         toast('压缩中...');
-        compressRoomImage(file).then(dataUrl => {
-          if (!canAddEmbeddedImage(dataUrl)) return;
-          state.gallery.push({ id: uid(), dataUrl, url: '', caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
+        compressRoomImage(file).then(async dataUrl => {
+          // 旧相册入口也必须复用统一存储策略：已加入 Worker 房间时上传到 R2，
+          // 仅离线或未加入房间时才保留压缩 data URL，避免兼容入口重新撑大 KV 快照。
+          const stored = await storeRoomImage(dataUrl);
+          if (!stored) return;
+          state.gallery.push({ id: uid(), dataUrl: stored.dataUrl || '', url: stored.url || '', caption: cap, createdAt: Date.now(), updatedAt: Date.now() });
           save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
         }).catch((error) => toast(error && error.message ? error.message : '图片处理失败', 'error'));
       } else if (url) {
