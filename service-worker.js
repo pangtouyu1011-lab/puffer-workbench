@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v2-settings-fullscreen';
+const CACHE_NAME = 'puffer-shell-v3-fast-assets';
 
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting());
@@ -10,8 +10,31 @@ self.addEventListener('activate', event => {
 
 // 主屏幕 PWA 打开时，导航页始终优先读取线上版本，避免一直复用旧的 HTML 壳。
 self.addEventListener('fetch', event => {
-  if (event.request.mode !== 'navigate') return;
-  event.respondWith(fetch(new Request(event.request, { cache: 'no-store' })));
+  const request = event.request;
+  if (request.mode === 'navigate') {
+    event.respondWith((async () => {
+      const cached = await caches.match(request);
+      try {
+        const fresh = await Promise.race([
+          fetch(new Request(request, { cache: 'no-store' })),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('network-timeout')), 4500))
+        ]);
+        const copy = fresh.clone();
+        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => {}));
+        return fresh;
+      } catch (_) { return cached || fetch(request); }
+    })());
+    return;
+  }
+  if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) return;
+  event.respondWith((async () => {
+    const cached = await caches.match(request);
+    const update = fetch(request).then(response => {
+      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(() => {});
+      return response;
+    }).catch(() => cached);
+    return cached || update;
+  })());
 });
 
 self.addEventListener('push', event => {
