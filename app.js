@@ -2519,7 +2519,9 @@
       const options = Object.assign({}, init || {}, {
         signal: controller.signal,
         cache: 'no-store',
-        headers: Object.assign({ 'Cache-Control': 'no-cache' }, (init && init.headers) || {})
+        // 不额外发送 Cache-Control 请求头：跨域 Worker 的预检不需要它，
+        // 否则部分手机浏览器会因 CORS 请求头未获允许而直接拦截同步。
+        headers: Object.assign({}, (init && init.headers) || {})
       });
       return await fetch(input, options);
     } catch (e) {

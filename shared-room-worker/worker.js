@@ -9,7 +9,7 @@
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,X-Room-Pass'
+  'Access-Control-Allow-Headers': 'Content-Type,X-Room-Pass,Cache-Control'
 };
 
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
