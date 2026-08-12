@@ -19,7 +19,43 @@ const MAX_D1_RECORD_BYTES = 900 * 1024;
 const D1_MIRROR_BATCH_SIZE = 250;
 const MEDIA_ORPHAN_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 const MEDIA_CLEANUP_BATCH_SIZE = 50;
+import { buildPushPayload } from '@block65/webcrypto-web-push';
+
 const COMPANION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
+function pushVapid(env) {
+  if (!env.VAPID_SUBJECT || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return null;
+  return { subject: env.VAPID_SUBJECT, publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY };
+}
+
+function pushChanges(previous, next, author) {
+  const sameDay = value => {
+    const date = new Date(Number(value) || 0);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10);
+  };
+  const fresh = (type, label, list) => {
+    const oldIds = new Set(Array.isArray(previous?.[type]) ? previous[type].map(item => item?.id) : []);
+    const item = (Array.isArray(list) ? list : []).find(value => value?.id && !oldIds.has(value.id) && value.author === author && sameDay(value.createdAt));
+    return item ? { title: `新的${label}`, body: item.text || item.caption || `TA 刚刚更新了${label}。`, tag: `puffer-${type}` } : null;
+  };
+  return fresh('messages', '留言', next?.messages) || fresh('gallery', '照片', next?.gallery) || fresh('todos', '待办', next?.todos) || null;
+}
+
+async function sendRoomPushes(env, room, author, change) {
+  const vapid = pushVapid(env);
+  if (!vapid || !env.DB || !change) return;
+  try {
+    const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE room_id = ? AND person <> ?').bind(room, author).all();
+    for (const row of rows.results || []) {
+      const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+      try {
+        const payload = await buildPushPayload({ data: JSON.stringify({ ...change, url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, subscription, vapid);
+        const response = await fetch(subscription.endpoint, payload);
+        if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, row.endpoint).run();
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
 
 function mediaKeysInPayload(payload) {
   const keys = new Set();
@@ -220,6 +256,11 @@ async function handle(request, env, ctx) {
     return json({ ok: true, storage: { kv: true, d1: !!env.DB }, ai: !!env.AI }, 200, cors);
   }
 
+  if (url.pathname === '/api/v1/push/public-key' && request.method === 'GET') {
+    const vapid = pushVapid(env);
+    return vapid ? json({ ok: true, publicKey: vapid.publicKey }, 200, cors) : json({ error: 'push_unavailable' }, 503, cors);
+  }
+
   // R2 保持私有：浏览器只经由 Worker 读写，桶本身不开放公网。
   // 读取 URL 使用不可猜测的对象键作为能力地址，不把房间口令写进同步数据。
   const publicMedia = url.pathname.match(/^\/api\/v1\/media\/(media\/[A-Za-z0-9-]+\.jpg)$/);
@@ -280,6 +321,25 @@ async function handle(request, env, ctx) {
     const rec = await env.BENCH.get('room:' + room, { type: 'json' });
     const result = await getCompanionLine(env, room, rec?.data || {});
     return json({ ok: true, ...result }, 200, cors);
+  }
+
+  const pushPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/push\/subscribe$/);
+  if (pushPath && request.method === 'POST') {
+    if (!env.DB) return json({ error: 'push_storage_unavailable' }, 503, cors);
+    const room = decodeURIComponent(pushPath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403, cors);
+    const person = String(body?.person || '');
+    const subscription = body?.subscription || {};
+    const endpoint = String(subscription.endpoint || '');
+    const p256dh = String(subscription.keys?.p256dh || '');
+    const auth = String(subscription.keys?.auth || '');
+    if (!['a', 'b'].includes(person) || !endpoint || !p256dh || !auth || endpoint.length > 2048) return json({ error: 'bad_subscription' }, 400, cors);
+    await env.DB.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_id, endpoint) DO UPDATE SET person = excluded.person, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at').bind(room, person, endpoint, p256dh, auth, Date.now()).run();
+    return json({ ok: true }, 200, cors);
   }
 
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
@@ -345,6 +405,7 @@ async function handle(request, env, ctx) {
     const payloadBytes = new TextEncoder().encode(JSON.stringify(body.data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
     const meta = await env.BENCH.get(metaKey, { type: 'json' });
+    const previous = await env.BENCH.get(dataKey, { type: 'json' });
     if (meta) {
       if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
       // 拒绝基于旧版本的写入。前端会重新拉取、按条目合并后再提交，
@@ -368,6 +429,10 @@ async function handle(request, env, ctx) {
     const mirror = mirrorRoomToD1(env, room, rev, now, body.data);
     if (ctx?.waitUntil) ctx.waitUntil(mirror);
     else mirror.catch(() => {});
+    const change = pushChanges(previous?.data || {}, body.data, String(body.data?.settings?.me || body.author || ''));
+    const pushes = sendRoomPushes(env, room, String(body.data?.settings?.me || body.author || ''), change);
+    if (ctx?.waitUntil) ctx.waitUntil(pushes);
+    else pushes.catch(() => {});
     return json({ ok: true, schemaVersion: 1, roomId: room, rev, updatedAt: now }, 200, cors);
   }
 

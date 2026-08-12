@@ -2179,7 +2179,7 @@
               <div class="settings-field"><label for="roomId">房间 ID</label><input class="pixel-input" id="roomId" value="${escapeHtml(state.settings.room.id || '')}" placeholder="两人保持一致" /></div>
               <div class="settings-field"><label for="roomPass">访问口令</label><input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="房间口令" /></div>
             </div>
-            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn" id="pushEnable">开启后台通知</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
             <div id="roomStatus" class="settings-status">尚未加入共享房间</div>
           </section>
           <section class="settings-card">
@@ -2224,6 +2224,13 @@
     $('#roomJoin').addEventListener('click', joinRoom);
     $('#roomCreate').addEventListener('click', createRoom);
     $('#roomSync').addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
+    $('#pushEnable')?.addEventListener('click', async () => {
+      const button = $('#pushEnable');
+      button.disabled = true;
+      try { await window.PufferPush?.enable(); button.textContent = '后台通知已开启'; toast('后台通知已开启 ✓'); }
+      catch (error) { toast(error?.message || '后台通知开启失败', 'error'); }
+      finally { button.disabled = false; }
+    });
     $('#roomLeave').addEventListener('click', leaveRoom);
     $('#wipeAll').addEventListener('click', () => {
       if (confirm('真的要清空所有数据吗？此操作不可恢复！')) {
@@ -2611,7 +2618,7 @@
     let res = await syncFetch(v1Url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, baseRev: Number(r.lastRev || 0), data })
+      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, baseRev: Number(r.lastRev || 0), author: state.settings.me || 'a', data })
     }, SYNC_UPLOAD_TIMEOUT_MS);
     if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, baseRev: Number(r.lastRev || 0), data }) }, SYNC_UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
