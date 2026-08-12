@@ -2175,19 +2175,22 @@
             <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-users-three"></i></span><div><h4>共享房间</h4><p>两台设备使用同一个房间 ID 和口令，数据会自动同步。</p></div></div>
             <div class="settings-note">使用 <strong>Cloudflare 同步</strong>。已有房间请直接加入，不要重复创建。</div>
             <div class="settings-fields settings-fields-wide">
-              <div class="settings-field settings-field-wide"><label for="roomUrl">同步地址</label><input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || DEFAULT_WORKER_URL)}" placeholder="https://sync.20051011.xyz" /></div>
+              <div class="settings-field settings-field-wide settings-field-system"><label for="roomUrl">同步地址</label><input class="pixel-input" id="roomUrl" value="${escapeHtml(state.settings.room.url || DEFAULT_WORKER_URL)}" placeholder="https://sync.20051011.xyz" /></div>
               <div class="settings-field"><label for="roomId">房间 ID</label><input class="pixel-input" id="roomId" value="${escapeHtml(state.settings.room.id || '')}" placeholder="两人保持一致" /></div>
               <div class="settings-field"><label for="roomPass">访问口令</label><input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="房间口令" /></div>
             </div>
-            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn" id="pushEnable">开启后台通知</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
+            <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn" id="pushEnable">开启后台通知</button><button class="pixel-btn" id="pushTest">发送测试通知</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
             <div id="roomStatus" class="settings-status">尚未加入共享房间</div>
           </section>
-          <section class="settings-card">
+          <details class="settings-advanced">
+            <summary><span><i class="ph ph-sliders-horizontal"></i> 备份与高级设置</span><i class="ph ph-caret-down"></i></summary>
+          <section class="settings-card settings-card-advanced">
             <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-shield-check"></i></span><div><h4>备份与迁移</h4><p>换设备、扫码或手动备份时使用。</p></div></div>
             <div class="settings-status ${usage.near ? 'is-warning' : ''}">${escapeHtml(usage.text)}${usage.near ? ' · 建议现在导出备份并整理旧图片' : ''}</div>
             <div class="settings-actions"><button class="pixel-btn primary" id="syncExport">导出备份</button><button class="pixel-btn" id="syncImport">导入备份</button><button class="pixel-btn" id="syncQR">生成迁移码</button><button class="pixel-btn" id="syncFromQR">导入迁移码</button></div>
             <div id="qrArea" class="settings-qr"><div id="qrCanvas"></div><p>手机扫码即可同步，或长按图片保存。</p></div>
           </section>
+          </details>
           <section class="settings-danger"><div><strong>危险操作</strong><p>清空所有本地数据，且无法恢复。</p></div><button class="pixel-btn danger" id="wipeAll">清空所有数据</button></section>
         </div>
       `,
@@ -2224,6 +2227,26 @@
     $('#roomJoin').addEventListener('click', joinRoom);
     $('#roomCreate').addEventListener('click', createRoom);
     $('#roomSync').addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
+    const pushEnableButton = $('#pushEnable');
+    if (pushEnableButton && !$('#pushTest')) {
+      pushEnableButton.insertAdjacentHTML('afterend', '<button class="pixel-btn" id="pushTest">发送测试通知</button>');
+    }
+    $('#pushTest')?.addEventListener('click', async () => {
+      const room = state.settings.room;
+      if (!room?.joined || !room.url || !room.id || !room.pass) { toast('请先加入房间并开启后台通知', 'info'); return; }
+      const button = $('#pushTest');
+      button.disabled = true;
+      try {
+        const response = await fetch(`${String(room.url).replace(/\/$/, '')}/api/v1/rooms/${encodeURIComponent(room.id)}/push/test`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pass: room.pass, person: state.settings.me || 'a' })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || '测试通知发送失败');
+        toast(result.sent ? '测试通知已发送，请稍等查看' : '当前设备还没有推送订阅，请先开启后台通知', result.sent ? 'success' : 'info');
+      } catch (error) { toast(error?.message || '测试通知发送失败', 'error'); }
+      finally { button.disabled = false; }
+    });
     $('#pushEnable')?.addEventListener('click', async () => {
       const button = $('#pushEnable');
       button.disabled = true;
