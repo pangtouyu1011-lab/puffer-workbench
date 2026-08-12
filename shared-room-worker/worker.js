@@ -57,6 +57,60 @@ async function sendRoomPushes(env, room, author, change) {
   } catch (_) {}
 }
 
+function beijingDay(value = Date.now()) {
+  return new Date(Number(value) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function scheduledSlot(value = Date.now()) {
+  const local = new Date(Number(value) + 8 * 60 * 60 * 1000);
+  const hour = local.getUTCHours(), minute = local.getUTCMinutes();
+  if (hour === 9 && minute === 0) return 'morning';
+  if (hour === 12 && minute === 30) return 'noon';
+  if (hour === 20 && minute === 30) return 'evening';
+  return '';
+}
+
+function scheduledReminder(data, person, slot, day) {
+  const messages = Array.isArray(data?.messages) ? data.messages.filter(item => !item.deleted && item.author === person && beijingDay(item.createdAt) === day) : [];
+  const photos = Array.isArray(data?.gallery) ? data.gallery.filter(item => !item.deleted && item.author === person && beijingDay(item.createdAt) === day) : [];
+  const status = data?.dailyStatus?.[day]?.[person];
+  const fortune = data?.fortune?.date === day && data?.fortune?.by?.[person];
+  const todos = Array.isArray(data?.todos) ? data.todos.filter(item => !item.deleted && item.date === day) : [];
+  const todoDone = !todos.length || todos.every(item => item.done);
+  if (fortune && status?.mood && messages.length && todoDone) return null;
+  if (slot === 'morning') return { title: '胖头鱼的早安', body: '今天也慢慢开始吧，回来看看 TA 的状态。', tag: `puffer-reminder-${day}-morning` };
+  if (slot === 'noon') return { title: '胖头鱼提醒你', body: '午饭和水都别忘了，忙了一上午，休息一下。', tag: `puffer-reminder-${day}-noon` };
+  return { title: '今晚一起收一下', body: messages.length || photos.length ? '今天已经留下了一点东西，回来看看 TA 有没有新记录。' : '今天还没有留下共同记录，回来看看吧。', tag: `puffer-reminder-${day}-evening` };
+}
+
+async function scheduledPushes(env, scheduledTime) {
+  const vapid = pushVapid(env);
+  if (!vapid || !env.DB || !env.BENCH) return;
+  const slot = scheduledSlot(scheduledTime);
+  if (!slot) return;
+  const day = beijingDay(scheduledTime);
+  try {
+    const rows = await env.DB.prepare('SELECT room_id, person, endpoint, p256dh, auth FROM push_subscriptions').all();
+    const rooms = new Map();
+    for (const row of rows.results || []) {
+      if (!rooms.has(row.room_id)) {
+        const rec = await env.BENCH.get('room:' + row.room_id, { type: 'json' });
+        rooms.set(row.room_id, rec?.data || null);
+      }
+      const data = rooms.get(row.room_id);
+      const reminder = scheduledReminder(data, row.person, slot, day);
+      if (!reminder) continue;
+      const claimed = await env.DB.prepare('INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)').bind(row.room_id, row.person, day, slot, Date.now()).run();
+      if (!claimed.meta?.changes) continue;
+      try {
+        const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
+        const response = await fetch(row.endpoint, payload);
+        if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(row.room_id, row.endpoint).run();
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
 function mediaKeysInPayload(payload) {
   const keys = new Set();
   const pattern = /\/api\/v1\/media\/(media\/[A-Za-z0-9-]+\.jpg)/g;
@@ -443,7 +497,8 @@ export default {
   fetch(request, env, ctx) {
     return handle(request, env, ctx);
   },
-  scheduled(_controller, env, ctx) {
+  scheduled(controller, env, ctx) {
+    ctx.waitUntil(scheduledPushes(env, controller.scheduledTime || Date.now()).catch(() => {}));
     ctx.waitUntil(cleanupOrphanMedia(env).catch(() => {}));
   }
 };

@@ -8,7 +8,7 @@ preview_urls = false
 [triggers]
 # 03:00 China Standard Time (UTC+8): conservative daily cleanup of only
 # registered, unreferenced media that has passed the 30-day grace period.
-crons = ["0 19 * * *"]
+crons = ["0 1 * * *", "30 4 * * *", "30 12 * * *", "0 19 * * *"]
 
 [ai]
 binding = "AI"
