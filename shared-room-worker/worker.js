@@ -201,7 +201,11 @@ async function getCompanionLine(env, room, data) {
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: Object.assign({ 'Content-Type': 'application/json' }, headers || {})
+    headers: Object.assign({
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma': 'no-cache'
+    }, headers || {})
   });
 }
 

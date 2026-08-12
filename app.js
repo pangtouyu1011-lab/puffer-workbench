@@ -2516,7 +2516,12 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(input, Object.assign({}, init || {}, { signal: controller.signal }));
+      const options = Object.assign({}, init || {}, {
+        signal: controller.signal,
+        cache: 'no-store',
+        headers: Object.assign({ 'Cache-Control': 'no-cache' }, (init && init.headers) || {})
+      });
+      return await fetch(input, options);
     } catch (e) {
       if (e && e.name === 'AbortError') {
         throw new Error('同步超时，请检查当前网络后重试');
@@ -2558,9 +2563,9 @@
       return { ok: true, data: body.data, rev: body.rev, updatedAt: body.updatedAt };
     }
     // Cloudflare Workers 后端
-    const base = url.replace(/\/$/, ''); const v1Url = `${base}/api/v1/rooms/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`;
+    const base = url.replace(/\/$/, ''); const syncStamp = Date.now(); const v1Url = `${base}/api/v1/rooms/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}&_sync=${syncStamp}`;
     let res = await syncFetch(v1Url);
-    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}`);
+    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}?pass=${encodeURIComponent(pass)}&_sync=${syncStamp}`);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
