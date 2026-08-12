@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v1';
+const CACHE_NAME = 'puffer-shell-v2-settings-fullscreen';
 
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting());
@@ -6,6 +6,12 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(self.clients.claim());
+});
+
+// 主屏幕 PWA 打开时，导航页始终优先读取线上版本，避免一直复用旧的 HTML 壳。
+self.addEventListener('fetch', event => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith(fetch(new Request(event.request, { cache: 'no-store' })));
 });
 
 self.addEventListener('push', event => {

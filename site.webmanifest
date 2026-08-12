@@ -2,11 +2,11 @@
   "name": "大童小孙之家",
   "short_name": "大童小孙之家",
   "description": "大童 & 小孙的共享小窝：待办日历、健身、留言、心愿、星座、吃什么",
-  "start_url": ".",
+  "start_url": "./?pwa=1",
   "scope": ".",
   "display": "standalone",
-  "background_color": "#FFF4E0",
-  "theme_color": "#FF8C42",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F2F2F7",
   "icons": [
     {
       "src": "assets/puffer-192.png",
