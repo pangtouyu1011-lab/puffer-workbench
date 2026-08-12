@@ -83,6 +83,34 @@ function scheduledReminder(data, person, slot, day) {
   return { title: '今晚一起收一下', body: messages.length || photos.length ? '今天已经留下了一点东西，回来看看 TA 有没有新记录。' : '今天还没有留下共同记录，回来看看吧。', tag: `puffer-reminder-${day}-evening` };
 }
 
+async function aiScheduledReminder(env, room, data, person, slot, day) {
+  const fallback = scheduledReminder(data, person, slot, day);
+  if (!fallback || !env.AI || !env.DB) return fallback;
+  const cacheSlot = `reminder-${slot}-${person}`;
+  try {
+    const cached = await env.DB.prepare('SELECT line FROM companion_lines WHERE room_id = ? AND day = ? AND slot = ?').bind(room, day, cacheSlot).first();
+    if (cached?.line) return { ...fallback, body: cached.line };
+    const messages = Array.isArray(data?.messages) ? data.messages.filter(item => !item.deleted && item.author === person && beijingDay(item.createdAt) === day).length : 0;
+    const photos = Array.isArray(data?.gallery) ? data.gallery.filter(item => !item.deleted && item.author === person && beijingDay(item.createdAt) === day).length : 0;
+    const mood = String(data?.dailyStatus?.[day]?.[person]?.mood || '还没有记录');
+    const todos = Array.isArray(data?.todos) ? data.todos.filter(item => !item.deleted && item.date === day) : [];
+    const remainingTodos = todos.filter(item => !item.done).length;
+    const result = await env.AI.run(COMPANION_MODEL, {
+      messages: [
+        { role: 'system', content: '你是情侣生活工作台里的胖头鱼。只写一句自然、温柔、具体的中文提醒，18到36个汉字。不编造事实，不使用表情符号，不提及后台、模型或数据。' },
+        { role: 'user', content: `北京时间${slot}提醒。今天是${day}。这个人今天心情：${mood}；留言${messages}条；照片${photos}张；未完成待办${remainingTodos}项。请提醒他回来看看共同生活或照顾自己。` }
+      ],
+      temperature: 0.7,
+      max_tokens: 80
+    });
+    const line = cleanCompanionLine(result?.response, fallback.body);
+    await env.DB.prepare('INSERT INTO companion_lines (room_id, day, slot, line, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, day, slot) DO NOTHING').bind(room, day, cacheSlot, line, Date.now()).run();
+    return { ...fallback, body: line };
+  } catch (_) {
+    return fallback;
+  }
+}
+
 async function scheduledPushes(env, scheduledTime) {
   const vapid = pushVapid(env);
   if (!vapid || !env.DB || !env.BENCH) return;
@@ -98,7 +126,7 @@ async function scheduledPushes(env, scheduledTime) {
         rooms.set(row.room_id, rec?.data || null);
       }
       const data = rooms.get(row.room_id);
-      const reminder = scheduledReminder(data, row.person, slot, day);
+      const reminder = await aiScheduledReminder(env, row.room_id, data, row.person, slot, day);
       if (!reminder) continue;
       const claimed = await env.DB.prepare('INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)').bind(row.room_id, row.person, day, slot, Date.now()).run();
       if (!claimed.meta?.changes) continue;
