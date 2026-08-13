@@ -7,3 +7,14 @@ assets/*-source.png
 .deploy_token
 .git_token_helper.sh
 supabase/.temp/
+
+# Local-only legacy backends and visual QA artifacts. Production uses the
+# Cloudflare Worker in shared-room-worker/.
+/supabase/
+/tools/
+/keepalive.ps1
+/.qa-chrome-profile/
+/*-qa.png
+/desktop-recovery-qa.png
+/mobile-recovery-qa.png
+/CODEX_PRIVATE_USE_OPTIMIZATION_BRIEF.md

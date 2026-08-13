@@ -123,7 +123,7 @@ Cloudflare Worker（sync.20051011.xyz）
 1. **同步不能回退为 Supabase 或 `*.workers.dev`**：当前稳定方案是自定义域名 `sync.20051011.xyz` + Worker KV。
 2. **不要清空、覆盖或批量迁移 KV 房间数据**。用户过去有过历史数据丢失/空房间问题，对数据安全非常敏感。
 3. `life.js` 是历史迭代叠加较多的单文件，存在后定义覆盖前定义的情况。修改首页时先定位最终生效的 `lifeHomeDashboard`，不要仅编辑前面同名函数。
-4. 不要删除或暂存以下用户已有的未提交内容：
+4. 以下 Supabase 文件是本机遗留实验，不属于当前 GitHub/生产架构；不要提交，也不要覆盖用户本机内容：
    - `supabase/config.toml`
    - `supabase/rooms.sql`
    - `supabase/functions/room-presence/`

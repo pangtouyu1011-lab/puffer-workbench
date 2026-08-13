@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v5-message-consistency';
+const CACHE_NAME = 'puffer-shell-v6-media-reuse';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {

@@ -2,16 +2,13 @@
 
 让「两个人共享同一个工作台」的免费后端。
 
-> **🇨🇳 国内用户看这里**：`*.workers.dev` 在大陆经常被墙，所以前端现在**默认用 Supabase**（`../supabase/SUPABASE_SETUP.md`，国内一般可访问、免费、不用域名）。本目录是 **Cloudflare Workers + KV** 方案，适合你**已有自有域名**、能给 Worker 配自定义域名的情况。
-
-前端「🤝 共享房间」**同时支持两种后端**，在设置里一键切换：
-- **Supabase（推荐，国内可访问）** → 见 `../supabase/SUPABASE_SETUP.md`
-- **Cloudflare Workers（需自有域名）** → 见下文
+当前生产后端为 **Cloudflare Worker + KV + D1 + R2**，并通过自定义域名 `https://sync.20051011.xyz` 提供服务。不要改回国内网络不稳定的 `*.workers.dev`，也不要重新切换到已停用的 Supabase 方案。
 
 ## 它能做什么
 
 - 为「共享房间」功能提供带**访问口令**的云端存储
 - 前端两人各填同一个「房间地址 + 房间 ID + 口令」，即可实时同步：待办 / 健身记录 / 素材库 / 推文 / AI 视频
+- KV 保存兼容快照，D1 保存逐条记录并补强即时读取，R2 保存照片
 - 数据按条目合并，删除也会同步（不会互相覆盖）
 
 ## 部署步骤
@@ -76,10 +73,7 @@
 
 ## 国内访问注意（重要）
 
-`*.workers.dev` 免费子域名在中国大陆经常被 DNS 污染 / 屏蔽，手机和电脑可能连不上共享房间。如果你没有自有域名：
-
-1. **直接用 Supabase（最省事）**：见 `../supabase/SUPABASE_SETUP.md`，免费、不用域名、国内一般可访问，前端已原生支持。
-2. **挂自定义域名**：把自有域名加到 Cloudflare，给本 Worker 配子域名（如 `share.你的域名.com`）并开启橙色云代理，自定义域名通常可达。
+生产环境固定使用自定义域名 `sync.20051011.xyz`。`*.workers.dev` 在部分中国大陆网络下可能不可达，因此只用于 Cloudflare 内部默认地址，不写回前端设置。
 
 > 本后端代码使用 **service worker 格式**（绑定 `BENCH` 以全局变量注入），可直接通过 Cloudflare API 部署：
 > `PUT /accounts/{accountId}/workers/scripts/puffer-share`（Content-Type: application/javascript，body 为 worker.js 源码），
