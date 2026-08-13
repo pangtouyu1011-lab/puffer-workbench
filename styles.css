@@ -1659,6 +1659,25 @@ body {
 .music-float-foot a { color: #9E4F58; text-decoration: none; font-weight: 700; }
 @keyframes musicRecordSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .music-record-groove { animation: none; } }
+
+/* 统一点击反馈：普通按钮 0.96，可点击卡片 0.985。 */
+:where(.pixel-btn,.icon-btn,.nav-item,.bn-item,.link-btn,.seg-btn,.todo-check,.ti-actions button,.wish-del,.wish-lit-btn,.wish-icon-opt,.music-record-toggle,.music-feedback button):not(:disabled) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: center;
+  transition-duration: 160ms;
+}
+:where(.pixel-btn,.icon-btn,.nav-item,.bn-item,.link-btn,.seg-btn,.todo-check,.ti-actions button,.wish-del,.wish-lit-btn,.wish-icon-opt,.music-record-toggle,.music-feedback button):not(:disabled):active {
+  transform: scale(.96);
+  transition-duration: 90ms;
+}
+:where(.quick-tile,.cat-card):active { transform: scale(.985); transition-duration: 90ms; }
+@media (prefers-reduced-motion: reduce) {
+  :where(.pixel-btn,.icon-btn,.nav-item,.bn-item,.link-btn,.seg-btn,.todo-check,.ti-actions button,.wish-del,.wish-lit-btn,.wish-icon-opt,.music-record-toggle,.music-feedback button):not(:disabled),
+  :where(.quick-tile,.cat-card) { transition-duration: .01ms !important; }
+  :where(.pixel-btn,.icon-btn,.nav-item,.bn-item,.link-btn,.seg-btn,.todo-check,.ti-actions button,.wish-del,.wish-lit-btn,.wish-icon-opt,.music-record-toggle,.music-feedback button):not(:disabled):active,
+  :where(.quick-tile,.cat-card):active { transform: none !important; }
+}
 @media (max-width: 900px) { .app { min-width: 0; } .content { min-width: 0; overflow: hidden; } .page { min-width: 0; } }
 @media (max-width: 640px) { .music-float { right: 10px; top: auto; bottom: calc(88px + env(safe-area-inset-bottom)); } .music-float-panel { bottom: 76px; max-height: min(70vh, 560px); overflow: auto; } }
 @media (max-width: 420px) { .app { padding-left: 8px; padding-right: 8px; } .content { padding-left: 2px; padding-right: 2px; } .card { border-radius: 15px; } .music-record-toggle { width: 68px; height: 68px; } .music-float-panel { right: -2px; width: calc(100vw - 20px); padding: 14px; } .music-track { grid-template-columns: 36px 1fr auto; gap: 8px; padding: 9px; } .music-track-cover { width: 36px; height: 36px; } }

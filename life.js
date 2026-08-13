@@ -44,6 +44,8 @@
   let photoCarouselTimer = null;
   let companionSheetTimer = null;
   let activeLifeTab = 'today';
+  let tabTransitionTimer = null;
+  let tabTransitionToken = 0;
 
   function openSheet(html) {
     mask.innerHTML = `<section class="life-sheet" role="dialog" aria-modal="true"><div class="life-sheet-top"><div class="life-sheet-handle"></div><button class="life-sheet-close" data-sheet-close aria-label="关闭">×</button></div><div class="life-sheet-body">${html}</div></section>`;
@@ -55,7 +57,34 @@
     top.addEventListener('pointerup', () => { if (!dragging) return; dragging = false; sheet.style.transition = 'transform .22s ease'; if (offset > 112) { sheet.style.transform = 'translateY(100%)'; setTimeout(closeSheet, 180); } else sheet.style.transform = 'translateY(0)'; });
   }
   function closeSheet() { clearTimeout(companionSheetTimer); companionSheetTimer=null; const preview = mask.querySelector('#lifeMessageImagePreview'); if (preview?.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl); mask.classList.remove('show'); }
-  function selectTab(page) { activeLifeTab=page; root.querySelectorAll('.life-page').forEach(node => node.classList.toggle('active', node.dataset.lifePage === page)); root.querySelectorAll('[data-life-tab]').forEach(node => { const tabPage=node.dataset.lifeTab, active=tabPage===page; node.classList.toggle('active',active); node.innerHTML=`${active?`<img class="life-nav-pet" src="assets/${pagePet(tabPage)}" alt="">`:icon(navMeta[tabPage].icon)}<span>${navMeta[tabPage].label}</span>`; }); renderCompanionFloat(state()); renderCompanionNudge(state()); window.scrollTo(0, 0); }
+  function selectTab(page) {
+    const target = slot(page);
+    if (!target || !navMeta[page]) return;
+    const changed = activeLifeTab !== page;
+    activeLifeTab = page;
+    const transitionToken = ++tabTransitionToken;
+    clearTimeout(tabTransitionTimer);
+    tabTransitionTimer = null;
+    root.querySelectorAll('.life-page').forEach(node => {
+      node.classList.remove('life-page-entering');
+      node.classList.toggle('active', node === target);
+    });
+    root.querySelectorAll('[data-life-tab]').forEach(node => {
+      const tabPage = node.dataset.lifeTab, active = tabPage === page;
+      node.classList.toggle('active', active);
+      node.innerHTML = `${active ? `<img class="life-nav-pet" src="assets/${pagePet(tabPage)}" alt="">` : icon(navMeta[tabPage].icon)}<span>${navMeta[tabPage].label}</span>`;
+    });
+    if (changed && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      target.classList.add('life-page-entering');
+      tabTransitionTimer = setTimeout(() => {
+        if (transitionToken === tabTransitionToken) target.classList.remove('life-page-entering');
+        tabTransitionTimer = null;
+      }, 240);
+    }
+    renderCompanionFloat(state());
+    renderCompanionNudge(state());
+    window.scrollTo(0, 0);
+  }
   function weatherInfo(s) { const w = s.weather || {}, code = w.code, seed = Number(`${new Date().getFullYear()}${new Date().getMonth()+1}${new Date().getDate()}`) + (Number(code) || 0), pick = list => list[Math.abs(seed) % list.length]; if ([0,1].includes(code)) return { label:'今天晴朗', temp:`${w.temp ?? '--'}° · 晴`, copy:pick(['天气不错，<br>适合一起出门走走。','阳光正好，<br>把散步留给傍晚。','晒晒太阳，<br>今天会是好日子。']), pet:'weather-sunny-pet.webp' }; if ([71,73,75,77,85,86].includes(code)) return { label:'今天有雪', temp:`${w.temp ?? '--'}° · 雪`, copy:pick(['注意保暖，<br>回家一起喝杯热的。','雪天慢一点，<br>把手揣暖再出门。','路面会湿滑，<br>今天走慢一点。']), pet:'weather-snow-pet.webp' }; if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return { label:'今天有雨', temp:`${w.temp ?? '--'}° · 雨`, copy:pick(['记得带伞，<br>回来一起喝杯热的。','雨声很轻，<br>路上慢一点走。','下雨天也好，<br>适合早点回家。']), pet:'weather-rain-pet.webp' }; return { label:'今天多云', temp:`${w.temp ?? '--'}° · 阴`, copy:pick(['云会慢慢散开，<br>傍晚适合一起走走。','阴天也温柔，<br>一起慢慢走回家。','风有一点凉，<br>出门记得带外套。']), pet:'weather-cloud-pet.webp' }; }
   // 新陪伴形象仅由既有状态推导；拖动位置只保存在当前设备，不进入房间同步。
   function companionPet(s) { const me=s.settings?.me||'a', ta=me==='a'?'b':'a', mood=String(s.dailyStatus?.[dayKey()]?.[ta]?.mood||'').trim(); if(new Date().getHours()>=20) return {asset:'puffer-state-goodnight.webp',label:'晚安陪伴',tone:'goodnight'}; if(activeLifeTab==='days') return {asset:'puffer-page-days.webp',label:'日子陪伴',tone:'days'}; if(activeLifeTab==='things') return {asset:'puffer-page-things.webp',label:'小事陪伴',tone:'things'}; if(activeLifeTab==='us') return {asset:'puffer-page-us.webp',label:'我们的小窝',tone:'home'}; if(mood==='想你') return {asset:'puffer-state-missing.webp',label:'想你',tone:'missing'}; if(mood==='开心') return {asset:'puffer-state-happy.webp',label:'开心',tone:'happy'}; return {asset:'puffer-state-quiet.webp',label:'安静陪伴',tone:'quiet'}; }

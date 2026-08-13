@@ -1,7 +1,7 @@
 # 胖头鱼情侣工作台 · 当前项目交接文档
 
 > 更新时间：2026-08-13  
-> 当前线上版本：`20260813-private-cleanup-2`
+> 当前线上版本：`20260813-touch-transitions-1`
 > 正式网站：<https://20051011.xyz>  
 > 同步 API：<https://sync.20051011.xyz>  
 > GitHub：<https://github.com/pangtouyu1011-lab/puffer-workbench>
