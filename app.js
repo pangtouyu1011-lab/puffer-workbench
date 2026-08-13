@@ -3203,7 +3203,7 @@
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),author:state.settings.me||'a',dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     addWater(delta) { addWater(Number(delta)||0); return hydrationTotals(); },
-    getHydrationToday() { const me=state.settings.me||'a', ta=me==='a'?'b':'a'; return { me:hydrationTotals(me), partner:hydrationTotals(ta), goal:WATER_GOAL_ML, drinkLimit:DRINK_WARN_ML, defaultMl:DEFAULT_HYDRATION_ML, records:(state.hydrationLog||[]).filter(item=>item&&!item.deleted&&item.author===me&&item.date===todayKey()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) }; },
+    getHydrationToday() { const me=state.settings.me||'a', ta=me==='a'?'b':'a', todayRecords=person=>(state.hydrationLog||[]).filter(item=>item&&!item.deleted&&item.author===person&&item.date===todayKey()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); return { me:hydrationTotals(me), partner:hydrationTotals(ta), goal:WATER_GOAL_ML, drinkLimit:DRINK_WARN_ML, defaultMl:DEFAULT_HYDRATION_ML, records:todayRecords(me), partnerRecords:todayRecords(ta) }; },
     addHydration(kind, ml) { return addHydration(kind, ml); },
     deleteHydration(id) { return deleteHydration(id); },
     setIdentity(me) { return changeIdentity(me); },
