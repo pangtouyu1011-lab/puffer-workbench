@@ -41,8 +41,21 @@ function pushChanges(previous, next, author) {
   };
   const fresh = (type, label, list) => {
     const oldIds = new Set(Array.isArray(previous?.[type]) ? previous[type].map(item => item?.id) : []);
-    const item = (Array.isArray(list) ? list : []).find(value => value?.id && !oldIds.has(value.id) && value.author === author && sameDay(value.createdAt));
-    return item ? { kind: type, title: `新的${label}`, body: item.text || item.caption || `TA 刚刚更新了${label}。`, tag: `puffer-${type}` } : null;
+    const item = (Array.isArray(list) ? list : []).find(value => {
+      if (!value?.id || oldIds.has(value.id) || !sameDay(value.createdAt)) return false;
+      return value.author === author || (type === 'todos' && !value.author && !!author);
+    });
+    if (!item) return null;
+    const recordId = String(item.id);
+    const open = type === 'messages' ? 'messages' : type === 'gallery' ? 'gallery' : 'todo';
+    return {
+      kind: type,
+      recordId,
+      title: `新的${label}`,
+      body: item.text || item.caption || `TA 刚刚更新了${label}。`,
+      tag: `puffer-${type}-${recordId}`,
+      url: `https://20051011.xyz/?open=${open}`
+    };
   };
   return fresh('messages', '留言', next?.messages) || fresh('gallery', '照片', next?.gallery) || fresh('todos', '待办', next?.todos) || null;
 }
@@ -55,7 +68,7 @@ async function sendRoomPushes(env, room, author, change) {
     for (const row of rows.results || []) {
       const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
       try {
-        const payload = await buildPushPayload({ data: JSON.stringify({ ...change, url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, subscription, vapid);
+        const payload = await buildPushPayload({ data: JSON.stringify(change), options: { ttl: 86400 } }, subscription, vapid);
         const response = await fetch(subscription.endpoint, payload);
         if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, row.endpoint).run();
       } catch (_) {}
@@ -125,21 +138,51 @@ async function scheduledPushes(env, scheduledTime) {
   const day = beijingDay(scheduledTime);
   try {
     const rows = await env.DB.prepare('SELECT room_id, person, endpoint, p256dh, auth FROM push_subscriptions').all();
-    const rooms = new Map();
+    const recipients = new Map();
     for (const row of rows.results || []) {
-      if (!rooms.has(row.room_id)) {
-        const rec = await env.BENCH.get('room:' + row.room_id, { type: 'json' });
-        rooms.set(row.room_id, rec?.data || null);
-      }
-      const data = rooms.get(row.room_id);
-      const reminder = await aiScheduledReminder(env, row.room_id, data, row.person, slot, day);
-      if (!reminder) continue;
+      const key = `${row.room_id}\n${row.person}`;
+      if (!recipients.has(key)) recipients.set(key, { roomId: row.room_id, person: row.person, subscriptions: [] });
+      recipients.get(key).subscriptions.push(row);
+    }
+    const rooms = new Map();
+    for (const recipient of recipients.values()) {
+      // Claim the person/slot before contacting any push service. The table's
+      // primary key makes concurrent or retried Cron invocations idempotent.
+      const claim = await env.DB.prepare(
+        'INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)'
+      ).bind(recipient.roomId, recipient.person, day, slot, Date.now()).run();
+      if (Number(claim?.meta?.changes || 0) !== 1) continue;
+      let delivered = 0;
       try {
-        const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
-        const response = await fetch(row.endpoint, payload);
-        if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(row.room_id, row.endpoint).run();
-        else if (response.ok || response.status === 201) await env.DB.prepare('INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)').bind(row.room_id, row.person, day, slot, Date.now()).run();
-      } catch (_) {}
+        if (!rooms.has(recipient.roomId)) {
+          const rec = await env.BENCH.get('room:' + recipient.roomId, { type: 'json' });
+          rooms.set(recipient.roomId, rec?.data || null);
+        }
+        const data = rooms.get(recipient.roomId);
+        const reminder = await aiScheduledReminder(env, recipient.roomId, data, recipient.person, slot, day);
+        // A completed interaction day is also a processed slot. Keep the claim
+        // so a retry cannot reconsider it with a different result.
+        if (!reminder) continue;
+        for (const row of recipient.subscriptions) {
+          try {
+            const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, kind: 'reminder', url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
+            const response = await fetch(row.endpoint, payload);
+            if (response.status === 404 || response.status === 410) {
+              await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(recipient.roomId, row.endpoint).run();
+            } else if (response.ok || response.status === 201) {
+              delivered += 1;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {
+        delivered = 0;
+      }
+      // Release only total delivery failures, allowing a later platform retry.
+      // Once one device received the slot, preserve at-most-once behavior.
+      if (!delivered) {
+        await env.DB.prepare('DELETE FROM scheduled_pushes WHERE room_id = ? AND person = ? AND day = ? AND slot = ?')
+          .bind(recipient.roomId, recipient.person, day, slot).run();
+      }
     }
   } catch (_) {}
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v6-media-reuse';
+const CACHE_NAME = 'puffer-shell-v7-notification-routing';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
@@ -64,10 +64,10 @@ self.addEventListener('push', event => {
     badge: '/assets/puffer-192.png',
     tag: data.tag || 'puffer-room-update',
     renotify: true,
-    data: { url: data.url || '/', kind: data.kind || '' }
+    data: { url: data.url || '/', kind: data.kind || '', recordId: data.recordId || '' }
   });
   const refreshClients = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-    clients.forEach(client => client.postMessage({ type: 'puffer-room-update', kind: data.kind || '' }));
+    clients.forEach(client => client.postMessage({ type: 'puffer-room-update', kind: data.kind || '', recordId: data.recordId || '' }));
   });
   event.waitUntil(Promise.all([notification, refreshClients]));
 });
@@ -78,7 +78,8 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
     const existing = clients.find(client => 'focus' in client);
     if (existing) {
-      existing.postMessage({ type: event.notification.data?.kind === 'messages' ? 'puffer-open-messages' : 'puffer-room-update' });
+      const kind = event.notification.data?.kind || '';
+      existing.postMessage({ type: kind ? 'puffer-open-notification' : 'puffer-room-update', kind });
       return existing.focus();
     }
     return self.clients.openWindow(target);

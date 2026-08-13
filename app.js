@@ -1143,8 +1143,10 @@
     // B：浏览器系统通知
     try {
       if (state.settings.notifySystem !== false && 'Notification' in window) {
-        if (Notification.permission === 'granted') {
-          const n = new Notification('💬 新留言 · ' + who, { body: text, tag: 'puffer-msg' });
+        if (Notification.permission === 'granted' && localStorage.getItem('puffer-push-enabled') !== '1') {
+          // Web Push already displays this item through service-worker.js.
+          // Keep the in-page toast but avoid a second system notification.
+          const n = new Notification('💬 新留言 · ' + who, { body: text, tag: `puffer-messages-${m.id}` });
           n.onclick = () => { try { window.focus(); } catch (e) {} if (document.getElementById('lifeApp')) window.dispatchEvent(new CustomEvent('puffer-life-messages')); else goPage('messages'); n.close(); };
         } else if (Notification.permission === 'default') {
           // 轮询回调里 requestPermission 无用户手势会被浏览器忽略，这里改为引导用户去开启
@@ -1519,7 +1521,7 @@
         editing.date = date || '';
         editing.updatedAt = Date.now();
       } else {
-        state.todos.push({ id: uid(), text: safeText, priority: p, date: date || '', done: false, createdAt: Date.now(), updatedAt: Date.now() });
+        state.todos.push({ id: uid(), author: state.settings.me || 'a', text: safeText, priority: p, date: date || '', done: false, createdAt: Date.now(), updatedAt: Date.now() });
       }
       save();
       closeModal();
@@ -3098,9 +3100,11 @@
   window.addEventListener('focus', () => { pollRoom(); refreshPresenceLocation(true); });
   navigator.serviceWorker?.addEventListener('message', async event => {
     if (event.data?.type === 'puffer-room-update') await pollRoom();
-    if (event.data?.type === 'puffer-open-messages') {
+    if (event.data?.type === 'puffer-open-messages' || event.data?.type === 'puffer-open-notification') {
       await pollRoom();
-      window.dispatchEvent(new CustomEvent('puffer-life-messages'));
+      const kind = event.data?.type === 'puffer-open-messages' ? 'messages' : event.data?.kind;
+      const target = kind === 'messages' ? 'messages' : kind === 'gallery' ? 'gallery' : kind === 'todos' ? 'todo' : '';
+      if (target) window.dispatchEvent(new CustomEvent(`puffer-life-${target}`));
     }
   });
   updateMsgBadge();
@@ -3128,7 +3132,7 @@
     refreshPresence() { refreshPresenceLocation(true); return true; },
     setLocationSharing(enabled) { return setLocationSharing(!!enabled); },
     setDailyStatus(person, mood, text) { const safeText = textWithinLimit(text, TEXT_LIMITS.moodNote, '状态说明'); if (safeText === null) return false; const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: safeText, updatedAt: Date.now() }; save(); return true; },
-    addTodo(input) { const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!text) return false; state.todos.push({ id: uid(), text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    addTodo(input) { const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!text) return false; state.todos.push({ id: uid(), author: state.settings.me || 'a', text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },
     toggleTodo(id) { const todo = state.todos.find(item => item.id === id && !item.deleted); if (!todo) return false; todo.done = !todo.done; todo.updatedAt = Date.now(); save(); return true; },
     addTraining(input) { const value=input||{}, content=textWithinLimit(value.content, TEXT_LIMITS.trainingContent, '训练内容'), muscle=textWithinLimit(value.muscle || 'custom', TEXT_LIMITS.trainingMeta, '训练部位'), weight=textWithinLimit(value.weight, TEXT_LIMITS.trainingMeta, '训练重量'), duration=textWithinLimit(value.duration, TEXT_LIMITS.trainingMeta, '训练时长'), note=textWithinLimit(value.note, TEXT_LIMITS.trainingNote, '训练备注'); if (!content || [muscle,weight,duration,note].some(v=>v===null)) return false; state.trainings.push({ id:uid(), author:state.settings.me || 'a', muscle, date:String(value.date || todayKey()), content, weight, duration, note, createdAt:Date.now(), updatedAt:Date.now() }); save(); return true; },
@@ -3139,7 +3143,7 @@
     deleteWish(id) { const item=state.wishes.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteMessage(id) { const item=state.messages.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
-    addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
+    addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),author:state.settings.me||'a',dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     addWater(delta) { addWater(Number(delta)||0); return todayWater(); },
     setIdentity(me) { return changeIdentity(me); },
     setNotifySystem(on) { state.settings.notifySystem=!!on;save();if(on&&'Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});return state.settings.notifySystem; },

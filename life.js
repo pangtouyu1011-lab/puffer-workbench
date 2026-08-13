@@ -157,5 +157,8 @@
   window.addEventListener('puffer-presence-change', render);
   window.addEventListener('puffer-life-home', () => { selectTab('today'); render(); });
   window.addEventListener('puffer-life-messages', () => { selectTab('things'); render(); requestAnimationFrame(() => messageSheet()); });
-  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();maybeOfferReview(); });
+  window.addEventListener('puffer-life-todo', () => { selectTab('days'); render(); requestAnimationFrame(() => calendarSheet()); });
+  window.addEventListener('puffer-life-gallery', () => { selectTab('things'); render(); requestAnimationFrame(() => gallerySheet()); });
+  function openNotificationTarget(kind) { if(kind==='messages')window.dispatchEvent(new CustomEvent('puffer-life-messages'));else if(kind==='todos'||kind==='todo')window.dispatchEvent(new CustomEvent('puffer-life-todo'));else if(kind==='gallery')window.dispatchEvent(new CustomEvent('puffer-life-gallery')); }
+  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();maybeOfferReview();const url=new URL(location.href),target=url.searchParams.get('open');if(target){url.searchParams.delete('open');history.replaceState(null,'',url.pathname+url.search+url.hash);requestAnimationFrame(()=>openNotificationTarget(target));} });
 })();
