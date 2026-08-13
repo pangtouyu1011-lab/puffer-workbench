@@ -86,3 +86,5 @@ body.life-mode .app,body.life-mode .bottom-nav,body.life-mode .bg-bubbles,body.l
 @media(prefers-reduced-motion:reduce){.life-hydration-celebrate,.life-hydration-angry{animation:none}.life-hydration-liquid{transition:none}}
 .life-hydration-liquid{height:var(--hydration-fill)}
 .life-hydration-kind button.active+button:not(.active){border-color:var(--life-line);background:#fff;color:var(--life-sub)}
+.life-hydration-visual .life-hydration-liquid{left:27%;right:27%;bottom:23%;max-height:47%;border-radius:5px 5px 10px 10px;clip-path:polygon(7% 0,93% 0,100% 100%,0 100%)}
+.life-hydration-gauge.drink .life-hydration-liquid{left:29%;right:29%;bottom:22%;max-height:45%;border-radius:4px 4px 9px 9px;clip-path:polygon(5% 0,95% 0,100% 100%,0 100%)}

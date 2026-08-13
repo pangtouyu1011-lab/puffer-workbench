@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v8-hydration';
+const CACHE_NAME = 'puffer-shell-v9-hydration-cup-mask';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
