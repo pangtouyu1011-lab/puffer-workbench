@@ -1,7 +1,7 @@
 {
   "scripts": {
     "build:test": "node test/build-worker.cjs",
-    "test": "npm run build:test && node --test test/room-sync.test.cjs"
+    "test": "npm run build:test && node --test test/*.test.cjs"
   },
   "devDependencies": {
     "miniflare": "5.20260801.0-alpha",

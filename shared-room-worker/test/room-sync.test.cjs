@@ -1,6 +1,6 @@
 const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, rmSync } = require('node:fs');
+const { mkdtempSync, readFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { Miniflare } = require('miniflare');
@@ -10,6 +10,7 @@ let mf;
 let kv;
 let db;
 let tempRoot;
+let migratedPushEndpoint;
 
 async function request(path, init) {
   const response = await mf.dispatchFetch('http://localhost' + path, init);
@@ -35,6 +36,22 @@ function getRoom(room, pass) {
   return request(roomPath(room, pass), { method: 'GET' });
 }
 
+function postJson(path, body, method = 'POST') {
+  return request(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+function pushPath(room, action) {
+  return `/api/v1/rooms/${encodeURIComponent(room)}/push/${action}`;
+}
+
+function presencePath(room) {
+  return `/api/v1/rooms/${encodeURIComponent(room)}/presence`;
+}
+
 before(async () => {
   tempRoot = mkdtempSync(join(tmpdir(), 'puffer-room-sync-'));
   const bundlePath = process.env.PUFFER_WORKER_BUNDLE
@@ -58,6 +75,24 @@ before(async () => {
     'room_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, updated_at INTEGER NOT NULL, storage_backend TEXT NOT NULL' +
     ')'
   );
+  await db.exec(
+    'CREATE TABLE push_subscriptions (' +
+    'room_id TEXT NOT NULL, person TEXT NOT NULL CHECK (person IN (\'a\', \'b\')), endpoint TEXT NOT NULL, ' +
+    'p256dh TEXT NOT NULL, auth TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (room_id, endpoint)' +
+    '); CREATE INDEX idx_push_subscriptions_room_person ON push_subscriptions(room_id, person)'
+  );
+  await db.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind('legacy-old-room', 'a', 'https://push.example/legacy-duplicate', 'old-key', 'old-auth', 1000).run();
+  await db.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind('legacy-new-room', 'b', 'https://push.example/legacy-duplicate', 'new-key', 'new-auth', 2000).run();
+  const migration = readFileSync(resolve(__dirname, '..', 'migrations', '0007_unique_push_endpoint.sql'), 'utf8')
+    .replace(/^\s*--.*$/gm, '').trim();
+  for (const statement of migration.split(';').map(value => value.trim()).filter(Boolean)) {
+    await db.prepare(statement).run();
+  }
+  migratedPushEndpoint = await db.prepare('SELECT room_id, person, updated_at FROM push_subscriptions WHERE endpoint = ?')
+    .bind('https://push.example/legacy-duplicate').all();
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind('https://push.example/legacy-duplicate').run();
 });
 
 after(async () => {
@@ -76,6 +111,13 @@ test('creates a room at revision 1 and returns one coherent snapshot', async () 
   assert.equal(read.body.rev, 1);
   assert.deepEqual(read.body.data, data);
   assert.equal(typeof read.body.updatedAt, 'number');
+});
+
+test('push endpoint migration keeps only the newest legacy binding', () => {
+  assert.equal(migratedPushEndpoint.results.length, 1);
+  assert.equal(migratedPushEndpoint.results[0].room_id, 'legacy-new-room');
+  assert.equal(migratedPushEndpoint.results[0].person, 'b');
+  assert.equal(migratedPushEndpoint.results[0].updated_at, 2000);
 });
 
 test('atomically rejects one of two writes based on the same revision', async () => {
@@ -191,4 +233,75 @@ test('stores the exact 8 MiB payload across chunks and rejects one byte more', a
   const rejected = await putRoom('payload-limit-room', 'secret', 1, tooLarge);
   assert.equal(rejected.status, 413);
   assert.equal(rejected.body.error, 'payload_too_large');
+});
+
+test('push status matches the current endpoint and unsubscribe removes only that device', async () => {
+  const room = 'push-device-room';
+  const pass = 'push-secret';
+  await putRoom(room, pass, 0, { messages: [] });
+  const first = { endpoint: 'https://push.example/first', keys: { p256dh: 'first-key', auth: 'first-auth' } };
+  const second = { endpoint: 'https://push.example/second', keys: { p256dh: 'second-key', auth: 'second-auth' } };
+  for (const subscription of [first, second]) {
+    const saved = await postJson(pushPath(room, 'subscribe'), { pass, person: 'a', subscription });
+    assert.equal(saved.status, 200);
+  }
+  assert.equal((await postJson(pushPath(room, 'status'), { pass, person: 'a', endpoint: first.endpoint })).body.subscribed, true);
+  assert.equal((await postJson(pushPath(room, 'status'), { pass, person: 'a', endpoint: 'https://push.example/missing' })).body.subscribed, false);
+
+  const wrongPass = await postJson(pushPath(room, 'unsubscribe'), { pass: 'wrong', endpoint: first.endpoint });
+  assert.equal(wrongPass.status, 403);
+  const removed = await postJson(pushPath(room, 'unsubscribe'), { pass, endpoint: first.endpoint });
+  assert.equal(removed.status, 200);
+  assert.equal((await postJson(pushPath(room, 'status'), { pass, person: 'a', endpoint: first.endpoint })).body.subscribed, false);
+  assert.equal((await postJson(pushPath(room, 'status'), { pass, person: 'a', endpoint: second.endpoint })).body.subscribed, true);
+  assert.equal((await postJson(pushPath(room, 'unsubscribe'), { pass, endpoint: first.endpoint })).status, 200);
+});
+
+test('subscribing one browser endpoint to a new room removes its old room binding', async () => {
+  const endpoint = 'https://push.example/moving-device';
+  const subscription = { endpoint, keys: { p256dh: 'moving-key', auth: 'moving-auth' } };
+  await putRoom('push-old-room', 'old-pass', 0, { messages: [] });
+  await putRoom('push-new-room', 'new-pass', 0, { messages: [] });
+  assert.equal((await postJson(pushPath('push-old-room', 'subscribe'), { pass: 'old-pass', person: 'a', subscription })).status, 200);
+  assert.equal((await postJson(pushPath('push-new-room', 'subscribe'), { pass: 'new-pass', person: 'b', subscription })).status, 200);
+  assert.equal((await postJson(pushPath('push-old-room', 'status'), { pass: 'old-pass', person: 'a', endpoint })).body.subscribed, false);
+  assert.equal((await postJson(pushPath('push-new-room', 'status'), { pass: 'new-pass', person: 'b', endpoint })).body.subscribed, true);
+});
+
+test('presence returns distance without exposing coordinates and clears location immediately', async () => {
+  const room = 'presence-private-room';
+  const pass = 'presence-secret';
+  await putRoom(room, pass, 0, { messages: [] });
+  const first = await postJson(presencePath(room), { pass, person: 'a', location: { lat: 30.2741, lon: 120.1551 } });
+  assert.equal(first.status, 200);
+  const second = await postJson(presencePath(room), { pass, person: 'b', location: { lat: 31.2304, lon: 121.4737 } });
+  assert.equal(second.status, 200);
+  assert.equal(JSON.stringify(second.body).includes('"lat"'), false);
+  assert.equal(JSON.stringify(second.body).includes('"lon"'), false);
+  assert.equal(second.body.presence.every(item => typeof item.hasLocation === 'boolean'), true);
+  assert.ok(second.body.distanceKm > 150 && second.body.distanceKm < 200);
+
+  const cleared = await postJson(presencePath(room), { pass, person: 'a', location: null });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.distanceKm, null);
+  assert.equal(cleared.body.presence.find(item => item.person === 'a').hasLocation, false);
+  const stored = await kv.get(`presence:${room}:a`, { type: 'json' });
+  assert.equal(stored.location, null);
+  const listed = await kv.list({ prefix: `presence:${room}:a` });
+  assert.equal(listed.keys.length, 1);
+  assert.ok(Number(listed.keys[0].expiration) * 1000 > Date.now() + 8 * 60 * 1000);
+  assert.ok(Number(listed.keys[0].expiration) * 1000 <= Date.now() + 11 * 60 * 1000);
+});
+
+test('deleting presence removes the person record and keeps the response private', async () => {
+  const room = 'presence-leave-room';
+  const pass = 'leave-secret';
+  await putRoom(room, pass, 0, { messages: [] });
+  await postJson(presencePath(room), { pass, person: 'a', location: { lat: 39.9042, lon: 116.4074 } });
+  const removed = await postJson(presencePath(room), { pass, person: 'a' }, 'DELETE');
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.presence.find(item => item.person === 'a').lastSeen, 0);
+  assert.equal(removed.body.presence.find(item => item.person === 'a').hasLocation, false);
+  assert.equal(await kv.get(`presence:${room}:a`), null);
+  assert.equal((await postJson(presencePath(room), { pass: 'wrong', person: 'b' }, 'DELETE')).status, 403);
 });

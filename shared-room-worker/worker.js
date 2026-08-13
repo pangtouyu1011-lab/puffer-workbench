@@ -22,6 +22,8 @@ const MAX_D1_RECORD_BYTES = 900 * 1024;
 const D1_MIRROR_BATCH_SIZE = 250;
 const MEDIA_ORPHAN_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 const MEDIA_CLEANUP_BATCH_SIZE = 50;
+const PRESENCE_TTL_SECONDS = 10 * 60;
+const PRESENCE_LOCATION_FRESH_MS = PRESENCE_TTL_SECONDS * 1000;
 import { buildPushPayload } from '@block65/webcrypto-web-push';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -333,6 +335,40 @@ function json(obj, status, headers) {
   });
 }
 
+function locationDistanceKm(left, right) {
+  if (!left || !right) return null;
+  const radians = value => value * Math.PI / 180;
+  const dLat = radians(right.lat - left.lat);
+  const dLon = radians(right.lon - left.lon);
+  const value = Math.sin(dLat / 2) ** 2
+    + Math.cos(radians(left.lat)) * Math.cos(radians(right.lat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+async function presenceResponse(env, room, now = Date.now()) {
+  const stored = await Promise.all(['a', 'b'].map(id => env.BENCH.get(`presence:${room}:${id}`, { type: 'json' })));
+  const validLocations = stored.map(record => {
+    const location = record?.location;
+    const updatedAt = Number(location?.updatedAt) || 0;
+    return location && now - updatedAt <= PRESENCE_LOCATION_FRESH_MS ? location : null;
+  });
+  const records = ['a', 'b'].map((person, index) => {
+    const record = stored[index];
+    const location = validLocations[index];
+    return {
+      person,
+      lastSeen: Number(record?.lastSeen) || 0,
+      online: !!record && now - Number(record.lastSeen || 0) <= 90000,
+      hasLocation: !!location,
+      locationUpdatedAt: Number(location?.updatedAt) || 0
+    };
+  });
+  const distanceKm = validLocations[0] && validLocations[1]
+    ? locationDistanceKm(validLocations[0], validLocations[1])
+    : null;
+  return { ok: true, now, presence: records, distanceKm };
+}
+
 function roomMeta(sql) {
   return sql.exec(
     'SELECT pass, revision, updated_at AS updatedAt, chunk_count AS chunkCount, payload_bytes AS payloadBytes FROM room_meta WHERE singleton = 1'
@@ -561,7 +597,7 @@ async function handle(request, env, ctx) {
   }
 
   const presencePath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/presence$/);
-  if (presencePath && request.method === 'POST') {
+  if (presencePath && (request.method === 'POST' || request.method === 'DELETE')) {
     const room = decodeURIComponent(presencePath[1]);
     let body;
     try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
@@ -572,6 +608,10 @@ async function handle(request, env, ctx) {
     if (!meta) return json({ error: 'not_found' }, 404, cors);
     if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
     const key = `presence:${room}:${person}`;
+    if (request.method === 'DELETE') {
+      await env.BENCH.delete(key);
+      return json(await presenceResponse(env, room), 200, cors);
+    }
     const previous = await env.BENCH.get(key, { type: 'json' }) || {};
     let location = previous.location || null;
     if (Object.prototype.hasOwnProperty.call(body, 'location')) {
@@ -584,13 +624,8 @@ async function handle(request, env, ctx) {
       }
     }
     const now = Date.now();
-    await env.BENCH.put(key, JSON.stringify({ person, lastSeen: now, location }));
-    const records = await Promise.all(['a', 'b'].map(async id => {
-      const rec = await env.BENCH.get(`presence:${room}:${id}`, { type: 'json' });
-      if (!rec) return { person: id, lastSeen: 0, online: false, location: null };
-      return { person: id, lastSeen: Number(rec.lastSeen) || 0, online: now - Number(rec.lastSeen || 0) <= 90000, location: rec.location || null };
-    }));
-    return json({ ok: true, now, presence: records }, 200, cors);
+    await env.BENCH.put(key, JSON.stringify({ person, lastSeen: now, location }), { expirationTtl: PRESENCE_TTL_SECONDS });
+    return json(await presenceResponse(env, room, now), 200, cors);
   }
 
   const companionPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/companion$/);
@@ -623,7 +658,28 @@ async function handle(request, env, ctx) {
     const p256dh = String(subscription.keys?.p256dh || '');
     const auth = String(subscription.keys?.auth || '');
     if (!['a', 'b'].includes(person) || !endpoint || !p256dh || !auth || endpoint.length > 2048) return json({ error: 'bad_subscription' }, 400, cors);
-    await env.DB.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_id, endpoint) DO UPDATE SET person = excluded.person, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at').bind(room, person, endpoint, p256dh, auth, Date.now()).run();
+    // A browser origin has one active PushSubscription endpoint. Remove any
+    // older room binding before saving the current one so changing rooms can
+    // never leave that device listening to the previous room.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND room_id <> ?').bind(endpoint, room),
+      env.DB.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_id, endpoint) DO UPDATE SET person = excluded.person, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at').bind(room, person, endpoint, p256dh, auth, Date.now())
+    ]);
+    return json({ ok: true }, 200, cors);
+  }
+
+  const pushUnsubscribePath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/push\/unsubscribe$/);
+  if (pushUnsubscribePath && request.method === 'POST') {
+    if (!env.DB) return json({ error: 'push_storage_unavailable' }, 503, cors);
+    const room = decodeURIComponent(pushUnsubscribePath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403, cors);
+    const endpoint = String(body?.endpoint || '');
+    if (!endpoint || endpoint.length > 2048) return json({ error: 'bad_subscription' }, 400, cors);
+    await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, endpoint).run();
     return json({ ok: true }, 200, cors);
   }
 
@@ -637,8 +693,11 @@ async function handle(request, env, ctx) {
     if (!meta) return json({ error: 'not_found' }, 404, cors);
     if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403, cors);
     const person = String(body?.person || '');
-    if (!['a', 'b'].includes(person)) return json({ error: 'bad_person' }, 400, cors);
-    const row = await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? ORDER BY updated_at DESC LIMIT 1').bind(room, person).first();
+    const endpoint = String(body?.endpoint || '');
+    if (!['a', 'b'].includes(person) || endpoint.length > 2048) return json({ error: endpoint.length > 2048 ? 'bad_subscription' : 'bad_person' }, 400, cors);
+    const row = endpoint
+      ? await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? AND endpoint = ? LIMIT 1').bind(room, person, endpoint).first()
+      : await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? ORDER BY updated_at DESC LIMIT 1').bind(room, person).first();
     return json({ ok: true, subscribed: !!row, updatedAt: row?.updated_at || 0 }, 200, cors);
   }
 

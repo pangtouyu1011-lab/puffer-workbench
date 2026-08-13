@@ -1023,8 +1023,7 @@
     }
     const seg = e.target.closest('#msgIdentitySeg .seg-btn');
     if (seg) {
-      state.settings.me = seg.dataset.me;
-      save(); renderMessages();
+      changeIdentity(seg.dataset.me).then(() => renderMessages());
     }
   });
 
@@ -2037,22 +2036,34 @@
   // Presence is deliberately kept outside the room payload: it must not create sync conflicts
   // or retain exact locations in shared history. The Worker stores only each person's latest point.
   let roomPresence = {};
+  let roomPresenceDistanceKm = null;
   let presenceTimer = null;
   let lastPresenceLocation = null;
   let lastPresenceLocationAt = 0;
   const PRESENCE_INTERVAL_MS = 30000;
   const LOCATION_REFRESH_MS = 5 * 60 * 1000;
-  const LOCATION_FRESH_MS = 30 * 60 * 1000;
-  const presenceKey = () => { const r = state.settings?.room || {}; return `puffer-location-share:${r.id || 'local'}:${state.settings?.me || 'a'}`; };
+  const CLEANUP_QUEUE_KEY = 'puffer-remote-cleanup-v1';
+  const presenceStorageKey = context => `puffer-location-share:${context?.id || 'local'}:${context?.person || 'a'}`;
+  const presenceKey = () => presenceStorageKey(roomContext());
   const locationSharingEnabled = () => localStorage.getItem(presenceKey()) === '1';
-  function distanceKm(a, b) { const rad = n => n * Math.PI / 180, dLat=rad(b.lat-a.lat), dLon=rad(b.lon-a.lon), q=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2; return 6371 * 2 * Math.atan2(Math.sqrt(q), Math.sqrt(1-q)); }
-  function presenceUi() { const me=state.settings?.me||'a', ta=me==='a'?'b':'a', mine=roomPresence[me]||{}, partner=roomPresence[ta]||{}, ownLoc=mine.location, taLoc=partner.location, fresh=taLoc&&ownLoc&&Date.now()-Number(taLoc.updatedAt||0)<LOCATION_FRESH_MS&&Date.now()-Number(ownLoc.updatedAt||0)<LOCATION_FRESH_MS; return { mine:{ sharing:locationSharingEnabled(), hasLocation:!!ownLoc, locationUpdatedAt:ownLoc?.updatedAt||0 }, partner:{ online:!!partner.online, lastSeen:Number(partner.lastSeen)||0, hasLocation:!!taLoc, locationUpdatedAt:taLoc?.updatedAt||0, distanceKm:fresh?distanceKm(ownLoc,taLoc):null } }; }
+  function roomContext(room = state.settings?.room, person = state.settings?.me || 'a') { const value=room||{}; return { backend:value.backend||'worker', url:String(value.url||''), id:String(value.id||''), pass:String(value.pass||''), person:String(person||'a') }; }
+  function presenceUi() { const me=state.settings?.me||'a', ta=me==='a'?'b':'a', mine=roomPresence[me]||{}, partner=roomPresence[ta]||{}; return { mine:{ sharing:locationSharingEnabled(), hasLocation:!!mine.hasLocation, locationUpdatedAt:Number(mine.locationUpdatedAt)||0 }, partner:{ online:!!partner.online, lastSeen:Number(partner.lastSeen)||0, hasLocation:!!partner.hasLocation, locationUpdatedAt:Number(partner.locationUpdatedAt)||0, distanceKm:Number.isFinite(roomPresenceDistanceKm)?roomPresenceDistanceKm:null } }; }
   function emitPresence() { window.dispatchEvent(new CustomEvent('puffer-presence-change')); }
-  async function sendPresence(location = undefined) { if (!roomActive()) return false; const r=state.settings.room; if (r.backend === 'supabase') return false; const base=String(r.url||'').replace(/\/$/, ''), endpoint=`${base}/api/v1/rooms/${encodeURIComponent(r.id)}/presence`; const payload={ pass:r.pass, person:state.settings.me||'a' }; if (location !== undefined) payload.location=location; try { const res=await syncFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},10000); const body=await res.json().catch(()=>({})); if(!res.ok) return false; roomPresence={}; (body.presence||[]).forEach(item=>{roomPresence[item.person]=item;}); emitPresence(); return true; } catch (_) { return false; } }
-  function refreshPresenceLocation(force=false) { if (!locationSharingEnabled()) return sendPresence(); if (!force && lastPresenceLocation && Date.now()-lastPresenceLocationAt<LOCATION_REFRESH_MS) return sendPresence(lastPresenceLocation); if (!navigator.geolocation) return sendPresence(); navigator.geolocation.getCurrentPosition(pos=>{ lastPresenceLocation={lat:pos.coords.latitude,lon:pos.coords.longitude}; lastPresenceLocationAt=Date.now(); sendPresence(lastPresenceLocation); },()=>sendPresence(),{enableHighAccuracy:false,maximumAge:LOCATION_REFRESH_MS,timeout:12000}); }
+  function readCleanupQueue() { try { const value=JSON.parse(localStorage.getItem(CLEANUP_QUEUE_KEY)||'[]'); return Array.isArray(value)?value:[]; } catch (_) { return []; } }
+  function writeCleanupQueue(items) { if(items.length)localStorage.setItem(CLEANUP_QUEUE_KEY,JSON.stringify(items.slice(-20)));else localStorage.removeItem(CLEANUP_QUEUE_KEY); }
+  function queueCleanup(task) { const items=readCleanupQueue(), key=[task.type,task.url,task.id,task.person||'',task.endpoint||''].join('|'), next=items.filter(item=>[item.type,item.url,item.id,item.person||'',item.endpoint||''].join('|')!==key); next.push({...task,queuedAt:Date.now()}); writeCleanupQueue(next); }
+  async function requestPresenceCleanup(context, removeRecord) { if(!context?.url||!context.id||!context.pass||context.backend==='supabase')return true; const endpoint=`${String(context.url).replace(/\/$/,'')}/api/v1/rooms/${encodeURIComponent(context.id)}/presence`, payload={pass:context.pass,person:context.person}; if(!removeRecord)payload.location=null; const res=await syncFetch(endpoint,{method:removeRecord?'DELETE':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},10000); return res.ok; }
+  async function runCleanupTask(task) { try { if(task.type==='presence-delete'||task.type==='presence-clear')return await requestPresenceCleanup(task,task.type==='presence-delete'); if(task.type==='push-unsubscribe'&&task.endpoint&&window.PufferPush?.removeServer){await window.PufferPush.removeServer(task,task.endpoint);return true;} } catch (_) {} return false; }
+  async function retryPendingCleanups() { if(navigator.onLine===false)return; const items=readCleanupQueue(); if(!items.length)return; const keep=[]; for(const item of items){if(!(await runCleanupTask(item)))keep.push(item);} writeCleanupQueue(keep); }
+  async function cleanPresence(context, removeRecord) { try { if(await requestPresenceCleanup(context,removeRecord))return true; } catch (_) {} queueCleanup({...context,type:removeRecord?'presence-delete':'presence-clear'}); return false; }
+  async function cleanPush(context) { if(!window.PufferPush?.disable)return true; try { await window.PufferPush.disable(context); return true; } catch(error) { if(error?.endpoint)queueCleanup({...context,type:'push-unsubscribe',endpoint:error.endpoint}); return false; } }
+  async function cleanupRoomContext(context,{presence='delete',push=true}={}) { const tasks=[cleanPresence(context,presence==='delete')]; if(push)tasks.push(cleanPush(context)); const results=await Promise.all(tasks); return results.every(Boolean); }
+  function applyPresenceResponse(body) { roomPresence={}; (body.presence||[]).forEach(item=>{roomPresence[item.person]={...item,hasLocation:!!(item.hasLocation||item.location),locationUpdatedAt:Number(item.locationUpdatedAt||item.location?.updatedAt)||0};}); roomPresenceDistanceKm=Number.isFinite(Number(body.distanceKm))&&body.distanceKm!==null?Number(body.distanceKm):null; emitPresence(); }
+  async function sendPresence(location = undefined) { if (!roomActive()) return false; const context=roomContext(),session=roomSession; if (context.backend === 'supabase') return false; const base=String(context.url||'').replace(/\/$/, ''), endpoint=`${base}/api/v1/rooms/${encodeURIComponent(context.id)}/presence`; const payload={ pass:context.pass, person:context.person }; if (location !== undefined) payload.location=location; try { const res=await syncFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},10000); const body=await res.json().catch(()=>({})); if(!res.ok||session!==roomSession||!sameRoomContext(context,roomContext())) return false; applyPresenceResponse(body); return true; } catch (_) { return false; } }
+  function refreshPresenceLocation(force=false) { if (!locationSharingEnabled()) return sendPresence(null); if (!force && lastPresenceLocation && Date.now()-lastPresenceLocationAt<LOCATION_REFRESH_MS) return sendPresence(lastPresenceLocation); if (!navigator.geolocation) return sendPresence(); navigator.geolocation.getCurrentPosition(pos=>{ if(!locationSharingEnabled()){sendPresence(null);return;} lastPresenceLocation={lat:pos.coords.latitude,lon:pos.coords.longitude}; lastPresenceLocationAt=Date.now(); sendPresence(lastPresenceLocation); },()=>sendPresence(),{enableHighAccuracy:false,maximumAge:LOCATION_REFRESH_MS,timeout:12000}); }
   function startPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); refreshPresenceLocation(true); presenceTimer=setInterval(()=>refreshPresenceLocation(false),PRESENCE_INTERVAL_MS); }
-  function stopPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); presenceTimer=null; roomPresence={}; emitPresence(); }
-  function setLocationSharing(enabled) { if (enabled) { localStorage.setItem(presenceKey(),'1'); refreshPresenceLocation(true); return true; } localStorage.removeItem(presenceKey()); lastPresenceLocation=null; lastPresenceLocationAt=0; sendPresence(null); return false; }
+  function stopPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); presenceTimer=null; roomPresence={};roomPresenceDistanceKm=null;emitPresence(); }
+  async function setLocationSharing(enabled) { if (enabled) { localStorage.setItem(presenceKey(),'1'); refreshPresenceLocation(true); return true; } const context=roomContext(); localStorage.removeItem(presenceKey()); lastPresenceLocation=null; lastPresenceLocationAt=0; roomPresenceDistanceKm=null; if(roomPresence[context.person]){roomPresence[context.person].hasLocation=false;roomPresence[context.person].locationUpdatedAt=0;}emitPresence();await cleanPresence(context,false);return false; }
 
   function updateSyncPill() {
     const code = state.settings.syncCode;
@@ -2228,11 +2239,13 @@
     // Supabase 与其他旧云端入口不在日常界面显示；保留兼容代码，不删除用户历史文件。
     state.settings.room.backend = 'worker';
     state.settings.room.anon = '';
-    $('#roomUrl').addEventListener('input', (e) => { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); });
-    $('#roomId').addEventListener('input', (e) => { state.settings.room.id = e.target.value.trim(); save(); });
-    $('#roomPass').addEventListener('input', (e) => { state.settings.room.pass = e.target.value.trim(); save(); });
-    $('#roomJoin').addEventListener('click', joinRoom);
-    $('#roomCreate').addEventListener('click', createRoom);
+    // Keep edits as a draft while connected. Otherwise polling can silently
+    // jump to a half-typed room before the user presses “加入房间”.
+    $('#roomUrl').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); } });
+    $('#roomId').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.id = e.target.value.trim(); save(); } });
+    $('#roomPass').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.pass = e.target.value.trim(); save(); } });
+    $('#roomJoin').addEventListener('click', () => connectRoomFromForm(false));
+    $('#roomCreate').addEventListener('click', () => connectRoomFromForm(true));
     $('#roomSync').addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
     const pushEnableButton = $('#pushEnable');
     if (pushEnableButton && !$('#pushTest')) {
@@ -2260,13 +2273,17 @@
       const ready = info.permission === 'granted' && info.subscribed && info.serverSubscribed;
       el.textContent = ready ? '后台通知已开启 · 当前设备已登记' : info.permission === 'denied' ? '通知权限被拒绝 · 请在 Safari 网站设置中允许通知' : info.subscribed && !info.serverSubscribed ? '浏览器已有订阅，但服务器未登记 · 请重新开启后台通知' : '后台通知尚未完成 · 请点击开启后台通知';
       el.classList.toggle('is-success', ready);
-      if (button) button.textContent = ready ? '后台通知已开启' : '开启后台通知';
+      if (button) { button.textContent = info.subscribed ? '关闭后台通知' : '开启后台通知'; button.dataset.enabled = info.subscribed ? '1' : '0'; }
     };
     $('#pushEnable')?.addEventListener('click', async () => {
       const button = $('#pushEnable');
       button.disabled = true;
-      try { await window.PufferPush?.enable(); button.textContent = '后台通知已开启'; toast('后台通知已开启 ✓'); await refreshPushStatus(); }
-      catch (error) { toast(error?.message || '后台通知开启失败', 'error'); }
+      try {
+        if (button.dataset.enabled === '1') { const context=roomContext(); const ok=await cleanPush(context); toast(ok?'后台通知已关闭':'设备通知已关闭，服务器记录将在联网后自动清理',ok?'success':'info'); }
+        else { await window.PufferPush?.enable(); toast('后台通知已开启 ✓'); }
+        await refreshPushStatus();
+      }
+      catch (error) { toast(error?.message || '后台通知操作失败', 'error'); }
       finally { button.disabled = false; }
     });
     refreshPushStatus();
@@ -2287,10 +2304,8 @@
     $('#qrArea').style.display = 'block';
     $('#qrCanvas').innerHTML = '';
     if (window.QRCode) {
-      QRCode.toCanvas(document.createElement('canvas'), url, { width: 220, margin: 1, color: { dark: '#4A2C17', light: '#FFF4E0' } }, (err, canvas) => {
-        if (err) { toast('生成失败：' + err.message, 'error'); return; }
-        $('#qrCanvas').appendChild(canvas);
-      });
+      try { new QRCode($('#qrCanvas'), { text:url, width:220, height:220, colorDark:'#4A2C17', colorLight:'#FFF4E0', correctLevel:QRCode.CorrectLevel.L }); }
+      catch (error) { toast('生成失败：' + error.message, 'error'); }
     } else {
       $('#qrCanvas').textContent = '二维码库加载失败';
     }
@@ -2390,6 +2405,7 @@
   let roomTimer = null;
   let pushTimer = null;
   let pollInFlight = null;
+  let roomSession = 0;
 
   function roomActive() {
     const r = state.settings.room;
@@ -2697,16 +2713,20 @@
   async function pushToRoomOnce(options = {}) {
     if (!roomActive()) return false;
     const r = state.settings.room;
+    const context = roomContext();
+    const session = roomSession;
     const allowCreate = !!options.allowCreate;
     setSyncPillBusy(true);
     try {
       try {
         const prevIds = new Set(state.messages.map(m => m.id));
-        const remote = await roomGet(r.url, r.id, r.pass);
+        const remote = await roomGet(context.url, context.id, context.pass);
+        if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         mergeState(state, remote.data);
         r.lastRev = remote.rev;
         checkNewMessages(prevIds); // 打开/同步时立即发现对方新留言
       } catch (e) {
+        if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         if (e.message !== '房间不存在' || !allowCreate) {
           r.lastError = e.message || '未知错误';
           updateRoomStatus();
@@ -2719,7 +2739,9 @@
       try {
         const snapshot = serializeRoom();
         const dataHash = await snapshotHash(snapshot);
-        const resp = await roomPut(r.url, r.id, r.pass, snapshot, dataHash);
+        if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
+        const resp = await roomPut(context.url, context.id, context.pass, snapshot, dataHash);
+        if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         r.lastRev = resp.rev;
         r.lastSync = Date.now();
         r.lastError = '';
@@ -2730,6 +2752,7 @@
         renderCurrent();
         return true;
       } catch (e) {
+        if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         const isConflict = e.message === '版本冲突（请稍后重试）';
         if (isConflict && conflictRetryCount < MAX_CONFLICT_RETRY) {
           // 对方也在写：快照过期。重新拉取-合并-再写，自动化解竞态
@@ -2760,8 +2783,11 @@
   async function pollRoomOnce() {
     if (!roomActive()) return;
     const r = state.settings.room;
+    const context = roomContext();
+    const session = roomSession;
     try {
-      const remote = await roomGet(r.url, r.id, r.pass);
+      const remote = await roomGet(context.url, context.id, context.pass);
+      if (session !== roomSession || !sameRoomContext(context, roomContext())) return;
       // 成功访问服务器就代表同步链路正常，即使数据版本没有变化也要清除旧错误状态
       r.lastSync = Date.now();
       r.lastError = '';
@@ -2784,6 +2810,7 @@
       renderCurrent();
       toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
     } catch (e) {
+      if (session !== roomSession || !sameRoomContext(context, roomContext())) return;
       syncFailed = true;
       const message = e && e.message ? e.message : '网络或服务器错误';
       const changed = r.lastError !== message;
@@ -2850,10 +2877,67 @@
     startPresencePolling();
   }
 
+  function stopRoomConnections() {
+    roomSession++;
+    if (roomTimer) { clearInterval(roomTimer); roomTimer = null; }
+    clearTimeout(pushTimer);
+    clearTimeout(syncRetryTimer);
+    pushQueued = false;
+    pushQueuedAllowCreate = false;
+    pushInFlight = null;
+    pollInFlight = null;
+    stopPresencePolling();
+  }
+
+  function sameRoomContext(left, right) {
+    return left.backend === right.backend && left.url.replace(/\/$/,'') === right.url.replace(/\/$/,'') && left.id === right.id && left.pass === right.pass;
+  }
+
+  async function connectRoomFromForm(create) {
+    const previousRoom = {...(state.settings.room || {})};
+    const previous = roomContext(previousRoom);
+    const next = {
+      backend: 'worker',
+      url: $('#roomUrl').value.trim() || DEFAULT_WORKER_URL,
+      id: $('#roomId').value.trim(),
+      pass: $('#roomPass').value.trim(),
+      person: state.settings.me || 'a'
+    };
+    if (!next.url || !next.id || !next.pass) { toast('请填写房间地址、ID 和口令', 'error'); return false; }
+    if (create && !confirm('这个操作会在当前后端创建一个新房间，并上传本机当前数据。确定继续吗？')) return false;
+    const switching = !!previousRoom.joined && !sameRoomContext(previous, next);
+    const restorePush = switching && localStorage.getItem('puffer-push-enabled') === '1';
+    const restoreLocation = switching && localStorage.getItem(presenceStorageKey(previous)) === '1';
+    if (switching && !create) {
+      try { await roomGet(next.url, next.id, next.pass); }
+      catch (error) { toast(error?.message || '无法加入这个房间', 'error'); return false; }
+    }
+    if (switching) {
+      stopRoomConnections();
+      localStorage.removeItem(presenceStorageKey(previous));
+      await cleanupRoomContext(previous);
+    }
+    Object.assign(state.settings.room, { backend:'worker', anon:'', url:next.url, id:next.id, pass:next.pass, joined:switching?false:!!previousRoom.joined });
+    save();
+    const ok = await (create ? createRoom(true) : joinRoom());
+    if (!ok && switching) {
+      Object.assign(state.settings.room, previousRoom);
+      if (restoreLocation) localStorage.setItem(presenceStorageKey(previous), '1');
+      save();
+      startRoomPolling();
+    }
+    if (ok && restorePush) {
+      try { await window.PufferPush?.enable?.(); } catch (_) { toast('房间已切换，请在设置中重新开启后台通知', 'info'); }
+    } else if (!ok && switching && restorePush) {
+      try { await window.PufferPush?.enable?.(); } catch (_) { toast('已恢复原房间，请重新开启后台通知', 'info'); }
+    }
+    return ok;
+  }
+
   async function joinRoom() {
     const r = state.settings.room;
-    if (r.backend === 'supabase' && (!r.url || !r.anon || !r.id || !r.pass)) { toast('请填写 Supabase 项目 URL、Anon Key、房间 ID 和口令', 'error'); return; }
-    if (r.backend !== 'supabase' && (!r.url || !r.id || !r.pass)) { toast('请填写房间地址、ID 和口令', 'error'); return; }
+    if (r.backend === 'supabase' && (!r.url || !r.anon || !r.id || !r.pass)) { toast('请填写 Supabase 项目 URL、Anon Key、房间 ID 和口令', 'error'); return false; }
+    if (r.backend !== 'supabase' && (!r.url || !r.id || !r.pass)) { toast('请填写房间地址、ID 和口令', 'error'); return false; }
     r.joined = true; save();
     const ok = await pushToRoom();
     if (ok) {
@@ -2862,18 +2946,20 @@
       updateRoomStatus();
       toast('已连接 #' + r.id + '，正在同步已有内容', 'success');
       closeModal();
+      return true;
     } else {
       r.joined = false; save();
       updateSyncPill();
       updateRoomStatus();
+      return false;
     }
   }
 
-  async function createRoom() {
+  async function createRoom(confirmed = false) {
     const r = state.settings.room;
-    if (r.backend === 'supabase' && (!r.url || !r.anon || !r.id || !r.pass)) { toast('请填写 Supabase 项目 URL、Anon Key、房间 ID 和口令', 'error'); return; }
-    if (r.backend !== 'supabase' && (!r.url || !r.id || !r.pass)) { toast('请填写房间地址、ID 和口令', 'error'); return; }
-    if (!confirm('这个操作会在当前后端创建一个新房间，并上传本机当前数据。确定继续吗？')) return;
+    if (r.backend === 'supabase' && (!r.url || !r.anon || !r.id || !r.pass)) { toast('请填写 Supabase 项目 URL、Anon Key、房间 ID 和口令', 'error'); return false; }
+    if (r.backend !== 'supabase' && (!r.url || !r.id || !r.pass)) { toast('请填写房间地址、ID 和口令', 'error'); return false; }
+    if (!confirmed && !confirm('这个操作会在当前后端创建一个新房间，并上传本机当前数据。确定继续吗？')) return false;
     r.joined = true; save();
     const ok = await pushToRoom({ allowCreate: true });
     if (ok) {
@@ -2882,21 +2968,52 @@
       updateRoomStatus();
       toast('已创建并连接 #' + r.id, 'success');
       closeModal();
+      return true;
     } else {
       r.joined = false; save();
       updateSyncPill();
       updateRoomStatus();
+      return false;
     }
   }
 
-  function leaveRoom() {
-    if (roomTimer) { clearInterval(roomTimer); roomTimer = null; }
-    stopPresencePolling();
+  async function leaveRoom() {
+    const context = roomContext();
+    stopRoomConnections();
+    localStorage.removeItem(presenceStorageKey(context));
     state.settings.room.joined = false;
     save();
     updateSyncPill();
     updateRoomStatus();
-    toast('已退出共享房间');
+    const clean = await cleanupRoomContext(context);
+    toast(clean ? '已退出共享房间，通知和位置已清理' : '已退出共享房间；离线清理将在联网后自动完成', clean ? 'success' : 'info');
+    return true;
+  }
+
+  async function changeIdentity(me) {
+    if (me !== 'a' && me !== 'b') return false;
+    const oldPerson = state.settings.me || 'a';
+    if (me === oldPerson) return true;
+    const context = roomContext(state.settings.room, oldPerson);
+    const active = roomActive();
+    const restorePush = active && localStorage.getItem('puffer-push-enabled') === '1';
+    if (active) {
+      roomSession++;
+      stopPresencePolling();
+      localStorage.removeItem(presenceStorageKey(context));
+      await cleanupRoomContext(context);
+    }
+    state.settings.me = me;
+    lastPresenceLocation = null;
+    lastPresenceLocationAt = 0;
+    save();
+    if (active) {
+      startPresencePolling();
+      if (restorePush) {
+        try { await window.PufferPush?.enable?.(); } catch (_) { toast('身份已切换，请重新开启后台通知', 'info'); }
+      }
+    }
+    return true;
   }
 
   function fmtAgo(ts) {
@@ -2959,6 +3076,7 @@
     pushToRoom();
     startRoomPolling();
   }
+  retryPendingCleanups();
   // 切回前台：立即拉一次最新数据并刷新角标（后台 tab 定时器会被浏览器节流，靠这个补偿）
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
@@ -2971,10 +3089,12 @@
     }
   });
   window.addEventListener('online', () => {
+    retryPendingCleanups();
     pollRoom();
     if (roomActive()) pushToRoom();
     refreshPresenceLocation(true);
   });
+  window.addEventListener('puffer-push-ready', retryPendingCleanups);
   window.addEventListener('focus', () => { pollRoom(); refreshPresenceLocation(true); });
   navigator.serviceWorker?.addEventListener('message', async event => {
     if (event.data?.type === 'puffer-room-update') await pollRoom();
@@ -3021,13 +3141,13 @@
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     addWater(delta) { addWater(Number(delta)||0); return todayWater(); },
-    setIdentity(me) { if(me!=='a'&&me!=='b')return false;state.settings.me=me;save();return true; },
+    setIdentity(me) { return changeIdentity(me); },
     setNotifySystem(on) { state.settings.notifySystem=!!on;save();if(on&&'Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});return state.settings.notifySystem; },
     updateProfile(input) { const p=input||{};state.settings.partners=state.settings.partners||{};if(p.a!=null)state.settings.partners.a=String(p.a).trim();if(p.b!=null)state.settings.partners.b=String(p.b).trim();if(p.city!=null)state.settings.city=String(p.city).trim();state.settings.partners.updatedAt=Date.now();save();if(p.city!=null)fetchWeather(true);return true; },
     syncNow() { return pushToRoom(); },
-    configureRoom(input) { const value=input||{},room=state.settings.room=state.settings.room||{};['backend','url','anon','id','pass'].forEach(key=>{if(value[key]!=null)room[key]=String(value[key]).trim();});save();return true; },
+    configureRoom(input) { const value=input||{},room=state.settings.room=state.settings.room||{};if(room.joined)return false;['backend','url','anon','id','pass'].forEach(key=>{if(value[key]!=null)room[key]=String(value[key]).trim();});save();return true; },
     joinConfiguredRoom(create) { return create ? createRoom() : joinRoom(); },
-    leaveConfiguredRoom() { leaveRoom(); return true; },
+    leaveConfiguredRoom() { return leaveRoom(); },
     exportBackup() { exportJSON(); return true; },
     importBackup() { importJSON(); return true; },
     exportTodos() { exportTodosToCalendar(live(state.todos).filter(t=>t.date),'情侣工作台待办'); return true; },

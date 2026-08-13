@@ -1,7 +1,7 @@
 # 胖头鱼情侣工作台 · 当前项目交接文档
 
 > 更新时间：2026-08-13  
-> 当前线上版本：`20260813-media-reuse-1`  
+> 当前线上版本：`20260813-private-cleanup-2`
 > 正式网站：<https://20051011.xyz>  
 > 同步 API：<https://sync.20051011.xyz>  
 > GitHub：<https://github.com/pangtouyu1011-lab/puffer-workbench>
@@ -178,6 +178,8 @@ Safari / PWA / 桌面浏览器
 - Safari 网站和桌面 PWA 可能使用不同的 Service Worker 生命周期；发布后第一次应彻底关闭 PWA再打开。
 - 每次功能发布都必须更新 `version.json`、`index.html` 资源参数；涉及缓存策略时同时修改 `CACHE_NAME`。
 - 后台推送要求：HTTPS、用户授权、有效 Push Subscription、Worker 中有效 VAPID Secrets。
+- 当前设备的 Push Subscription endpoint 在 D1 中全局唯一；退出房间、换房间或切换 A/B 身份会解绑旧订阅，离线失败会在下次联网时重试。
+- 在线状态 KV 只保留 10 分钟；位置接口只向客户端返回位置是否有效、更新时间和双方距离，不返回任何一方的精确经纬度。关闭位置会清空坐标，退出房间会删除对应在线记录。
 - 定时通知由 Worker Cron 触发，D1 `scheduled_pushes` 保证每个人每个时段只发送一次。
 - 当前 Cron 以 UTC 写在 `wrangler.toml`；修改前必须换算北京时间并检查是否会重复发送。
 - 胖头鱼前台气泡、回顾弹窗和系统后台通知是三套不同机制，不要混为一谈。
