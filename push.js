@@ -26,14 +26,17 @@
   async function endpoint() { return (await subscription())?.endpoint || ''; }
   async function status(override) {
     const current = context(override);
-    const result = { supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window, permission: 'Notification' in window ? Notification.permission : 'unsupported', subscribed: false, serverSubscribed: false };
+    const result = { supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window, permission: 'Notification' in window ? Notification.permission : 'unsupported', subscribed: false, serverSubscribed: false, lastAcceptedPush: null };
     if (!result.supported || !current?.joined || current.backend === 'supabase' || !current.url || !current.id || !current.pass) return result;
     try {
       const currentSubscription = await subscription();
       result.subscribed = !!currentSubscription;
       const response = await fetch(`${String(current.url).replace(/\/$/, '')}/api/v1/rooms/${encodeURIComponent(current.id)}/push/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass: current.pass, person: current.person, endpoint: currentSubscription?.endpoint || '' }), cache: 'no-store' });
       const body = await response.json().catch(() => ({}));
-      if (response.ok) result.serverSubscribed = !!body.subscribed;
+      if (response.ok) {
+        result.serverSubscribed = !!body.subscribed;
+        result.lastAcceptedPush = body.lastAcceptedPush || null;
+      }
     } catch (_) {}
     return result;
   }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v10-hydration-couple-view';
+const CACHE_NAME = 'puffer-shell-v11-declarative-push';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
@@ -58,16 +58,22 @@ self.addEventListener('fetch', event => {
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) { data = { body: event.data?.text?.() || '有新的共同生活更新。' }; }
-  const notification = self.registration.showNotification(data.title || '胖头鱼的共同生活', {
-    body: data.body || '有新的共同生活更新。',
-    icon: '/assets/puffer-192.png',
+  // Declarative Web Push nests the visible fields under `notification`.
+  // Older browsers still run this handler, so display the same standardized
+  // payload imperatively for backwards compatibility.
+  const visible = data.notification || data;
+  const metadata = visible.data || data.data || {};
+  const target = visible.navigate || metadata.url || data.url || '/';
+  const notification = self.registration.showNotification(visible.title || '胖头鱼的共同生活', {
+    body: visible.body || '有新的共同生活更新。',
+    icon: visible.icon || '/assets/puffer-192.png',
     badge: '/assets/puffer-192.png',
-    tag: data.tag || 'puffer-room-update',
+    tag: visible.tag || 'puffer-room-update',
     renotify: true,
-    data: { url: data.url || '/', kind: data.kind || '', recordId: data.recordId || '' }
+    data: { url: target, kind: metadata.kind || data.kind || '', recordId: metadata.recordId || data.recordId || '' }
   });
   const refreshClients = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-    clients.forEach(client => client.postMessage({ type: 'puffer-room-update', kind: data.kind || '', recordId: data.recordId || '' }));
+    clients.forEach(client => client.postMessage({ type: 'puffer-room-update', kind: metadata.kind || data.kind || '', recordId: metadata.recordId || data.recordId || '' }));
   });
   event.waitUntil(Promise.all([notification, refreshClients]));
 });

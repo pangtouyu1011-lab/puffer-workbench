@@ -101,6 +101,28 @@ test('hydration reminder cold-starts the hydration recorder', async () => {
   assert.deepEqual(worker.opened, ['https://20051011.xyz/?open=hydration']);
 });
 
+test('declarative push payload is displayed by legacy service workers too', async () => {
+  const worker = loadServiceWorker();
+  await runExtendable(worker.handlers.push, {
+    data: {
+      json: () => ({
+        web_push: 8030,
+        notification: {
+          title: '胖头鱼提醒你喝水',
+          body: '下午啦，先喝一杯水。',
+          navigate: 'https://20051011.xyz/?open=hydration',
+          tag: 'puffer-hydration-2026-08-13',
+          data: { kind: 'hydration', recordId: '' }
+        }
+      })
+    }
+  });
+  assert.equal(worker.shown[0].title, '胖头鱼提醒你喝水');
+  assert.equal(worker.shown[0].options.body, '下午啦，先喝一杯水。');
+  assert.equal(worker.shown[0].options.data.kind, 'hydration');
+  assert.equal(worker.shown[0].options.data.url, 'https://20051011.xyz/?open=hydration');
+});
+
 test('hydration records merge by id and do not reuse the legacy maximum counter', () => {
   const app = readFileSync(resolve(projectRoot, 'app.js'), 'utf8');
   assert.match(app, /hydrationLog: mergeArr\(local\.hydrationLog, remote\.hydrationLog\)/);
@@ -113,6 +135,8 @@ test('scheduled hydration reminder keeps its routed kind and URL', () => {
   assert.match(source, /hour === 15 && minute === 30\) return 'hydration'/);
   assert.match(source, /kind: reminder\.kind \|\| 'reminder'/);
   assert.match(source, /url: reminder\.url \|\| 'https:\/\/20051011\.xyz\/'/);
+  assert.match(source, /web_push: 8030/);
+  assert.match(source, /JSON\.stringify\(pushMessage\(/);
 });
 
 test('scheduled reminders claim their D1 slot before building a push payload', () => {

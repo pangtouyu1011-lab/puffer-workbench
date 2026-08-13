@@ -2327,7 +2327,9 @@
       const el = $('#pushStatus'), button = $('#pushEnable'); if (!el) return;
       const info = await window.PufferPush?.status?.() || {};
       const ready = info.permission === 'granted' && info.subscribed && info.serverSubscribed;
-      el.textContent = ready ? '后台通知已开启 · 当前设备已登记' : info.permission === 'denied' ? '通知权限被拒绝 · 请在 Safari 网站设置中允许通知' : info.subscribed && !info.serverSubscribed ? '浏览器已有订阅，但服务器未登记 · 请重新开启后台通知' : '后台通知尚未完成 · 请点击开启后台通知';
+      const acceptedAt = Number(info.lastAcceptedPush?.acceptedAt || 0);
+      const acceptedText = acceptedAt ? ` · 最近提交 ${new Date(acceptedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '';
+      el.textContent = ready ? `后台通知已开启 · 当前设备已登记${acceptedText}` : info.permission === 'denied' ? '通知权限被拒绝 · 请在系统“通知”设置中允许胖头鱼通知' : info.subscribed && !info.serverSubscribed ? '浏览器已有订阅，但服务器未登记 · 请重新开启后台通知' : '后台通知尚未完成 · 请点击开启后台通知';
       el.classList.toggle('is-success', ready);
       if (button) { button.textContent = info.subscribed ? '关闭后台通知' : '开启后台通知'; button.dataset.enabled = info.subscribed ? '1' : '0'; }
     };

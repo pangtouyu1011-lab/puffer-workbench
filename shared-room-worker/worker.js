@@ -34,6 +34,32 @@ function pushVapid(env) {
   return { subject: env.VAPID_SUBJECT, publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY };
 }
 
+// Use the standardized declarative payload supported by recent WebKit while
+// keeping the same JSON usable by older browsers through service-worker.js.
+// On iOS 18.4+, the notification can still be displayed when WebKit cannot
+// start the service worker in time.
+function pushMessage(message) {
+  const url = String(message?.url || 'https://20051011.xyz/');
+  return {
+    web_push: 8030,
+    notification: {
+      title: String(message?.title || '胖头鱼的共同生活'),
+      body: String(message?.body || '有新的共同生活更新。'),
+      navigate: url,
+      lang: 'zh-CN',
+      dir: 'ltr',
+      silent: false,
+      tag: String(message?.tag || 'puffer-room-update'),
+      icon: 'https://20051011.xyz/assets/puffer-192.png',
+      data: {
+        url,
+        kind: String(message?.kind || ''),
+        recordId: String(message?.recordId || '')
+      }
+    }
+  };
+}
+
 function pushChanges(previous, next, author) {
   const sameDay = value => {
     const date = new Date(Number(value) || 0);
@@ -68,7 +94,7 @@ async function sendRoomPushes(env, room, author, change) {
     for (const row of rows.results || []) {
       const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
       try {
-        const payload = await buildPushPayload({ data: JSON.stringify(change), options: { ttl: 86400 } }, subscription, vapid);
+        const payload = await buildPushPayload({ data: JSON.stringify(pushMessage(change)), options: { ttl: 86400 } }, subscription, vapid);
         const response = await fetch(subscription.endpoint, payload);
         if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, row.endpoint).run();
       } catch (_) {}
@@ -172,16 +198,21 @@ async function scheduledPushes(env, scheduledTime) {
         if (!reminder) continue;
         for (const row of recipient.subscriptions) {
           try {
-            const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, kind: reminder.kind || 'reminder', url: reminder.url || 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
+            const payload = await buildPushPayload({ data: JSON.stringify(pushMessage({ ...reminder, kind: reminder.kind || 'reminder', url: reminder.url || 'https://20051011.xyz/' })), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
             const response = await fetch(row.endpoint, payload);
             if (response.status === 404 || response.status === 410) {
               await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(recipient.roomId, row.endpoint).run();
             } else if (response.ok || response.status === 201) {
               delivered += 1;
+            } else {
+              console.error('Scheduled push rejected', recipient.roomId, recipient.person, slot, response.status);
             }
-          } catch (_) {}
+          } catch (error) {
+            console.error('Scheduled push failed', recipient.roomId, recipient.person, slot, error);
+          }
         }
-      } catch (_) {
+      } catch (error) {
+        console.error('Scheduled reminder failed', recipient.roomId, recipient.person, slot, error);
         delivered = 0;
       }
       // Release only total delivery failures, allowing a later platform retry.
@@ -748,7 +779,19 @@ async function handle(request, env, ctx) {
     const row = endpoint
       ? await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? AND endpoint = ? LIMIT 1').bind(room, person, endpoint).first()
       : await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? ORDER BY updated_at DESC LIMIT 1').bind(room, person).first();
-    return json({ ok: true, subscribed: !!row, updatedAt: row?.updated_at || 0 }, 200, cors);
+    let latest = null;
+    try {
+      latest = await env.DB.prepare('SELECT day, slot, sent_at FROM scheduled_pushes WHERE room_id = ? AND person = ? ORDER BY sent_at DESC LIMIT 1').bind(room, person).first();
+    } catch (_) {
+      // Keep status available while an older/test database is still applying
+      // the optional scheduled-push audit migration.
+    }
+    return json({
+      ok: true,
+      subscribed: !!row,
+      updatedAt: row?.updated_at || 0,
+      lastAcceptedPush: latest ? { day: latest.day, slot: latest.slot, acceptedAt: latest.sent_at } : null
+    }, 200, cors);
   }
 
   const pushTestPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/push\/test$/);
@@ -769,7 +812,7 @@ async function handle(request, env, ctx) {
     for (const row of rows.results || []) {
       const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
       try {
-        const payload = await buildPushPayload({ data: JSON.stringify({ title: '胖头鱼测试通知', body: '后台通知已经成功送达啦～', url: 'https://20051011.xyz/', tag: `puffer-test-${Date.now()}` }), options: { ttl: 300 } }, subscription, vapid);
+        const payload = await buildPushPayload({ data: JSON.stringify(pushMessage({ title: '胖头鱼测试通知', body: '后台通知已经成功送达啦～', url: 'https://20051011.xyz/', tag: `puffer-test-${Date.now()}`, kind: 'test' })), options: { ttl: 300 } }, subscription, vapid);
         const response = await fetch(subscription.endpoint, payload);
         if (response.ok || response.status === 201) sent += 1;
         if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, row.endpoint).run();
