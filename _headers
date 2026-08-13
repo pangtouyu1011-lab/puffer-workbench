@@ -8,3 +8,5 @@
   Cache-Control: no-cache, must-revalidate
 /life.css
   Cache-Control: no-cache, must-revalidate
+/service-worker.js
+  Cache-Control: no-store, no-cache, must-revalidate
