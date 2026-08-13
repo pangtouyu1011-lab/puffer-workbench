@@ -21,6 +21,14 @@ routes = [
 binding = "BENCH"
 id = "773e10e804bb4c0d9c9b24273b37e258"
 
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomCoordinator"
+
+[exports.RoomCoordinator]
+type = "durable-object"
+storage = "sqlite"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "pufferwork-db"

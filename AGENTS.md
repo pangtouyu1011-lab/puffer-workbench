@@ -9,7 +9,7 @@
 ## 技术栈
 - 单页应用：HTML + 自写 CSS + 原生 JavaScript（vanilla，全局变量，无模块系统）
 - 视觉风格：像素风，主色 #FF8C42（橙）/ #FFF4E0（米）/ #4A2C17（棕）
-- 数据：localStorage 本地副本 + Cloudflare Worker API；KV 保存房间快照，D1 保存逐条同步记录，R2 保存照片（`https://sync.20051011.xyz`）
+- 数据：localStorage 本地副本 + Cloudflare Worker API；SQLite Durable Object 原子保存权威房间快照与版本，KV 保存兼容镜像，D1 保存逐条同步记录，R2 保存照片（`https://sync.20051011.xyz`）
 
 ## 文件结构
 - `PUFFER_WORKBENCH_HANDOFF.md` — 当前生产架构、同步链路、发布与排障的完整交接基准
@@ -22,7 +22,7 @@
 
 ## 核心架构（改代码前必读）
 1. **单一状态对象 `state`**：`{ partners:{a,b}, todos, trainings, messages, gallery, meals, fitnessPlan, settings }`。所有数据挂在它上面。
-2. **持久化**：`save()` 写 localStorage；若已加入共享房间，`scheduleRoomPush()`（防抖 1s）经 Worker API 上传。Worker 写 KV 快照、D1 条目，并将图片二进制放入 R2。
+2. **持久化**：`save()` 写 localStorage；若已加入共享房间，`scheduleRoomPush()`（防抖 1s）经 Worker API 上传。Worker 先通过 SQLite Durable Object 原子校验 `baseRev` 并提交完整快照，再镜像到 KV/D1；图片二进制放入 R2。
 3. **同步合并规则（务必遵守，否则双端数据损坏）**：
    - 删除 = **软删除** `item.deleted = true`，**不要物理移除数组元素**。
    - 按 `id` 合并：`deleted` 优先 → `updatedAt` 较新者胜 → 平局取本地。
@@ -50,6 +50,6 @@
 ## 已知坑
 - 共享后端使用自定义域名 `sync.20051011.xyz`，不要改回容易受网络影响的 `*.workers.dev` 默认地址。
 - 照片上传先压缩，再经 Worker 写入 R2；同步数据只保存 URL。旧 data URL 仍需兼容读取。
-- D1 `room_records` 用于逐条合并和即时留言读取；KV 仍保留房间快照，不能绕过 Worker 让前端直连存储。
+- Durable Object 是完整房间快照和 revision 的权威来源；KV/D1 只作兼容镜像与逐条查询，不能用 D1 较新 revision 与旧快照混合返回，也不能绕过 Worker 让前端直连存储。
 - iOS 日历：纯前端生成 `.ics`（data URI 下载），仅 iOS Safari 点开弹系统日历添加界面。
 - 时区/日期：待办 `date` 字段为 `YYYY-MM-DD` 本地日期字符串。

@@ -30,8 +30,9 @@ Safari / PWA / 桌面浏览器
         │
         └── Cloudflare Worker API
               └── sync.20051011.xyz
-                    ├── KV：房间兼容快照、在线状态
-                    ├── D1：逐条记录、同步索引、推送订阅、定时通知记录
+                    ├── SQLite Durable Object：权威房间快照、原子 revision
+                    ├── KV：兼容快照、在线状态
+                    ├── D1：逐条镜像、同步索引、推送订阅、定时通知记录
                     ├── R2：私有照片对象
                     └── Workers AI：规则问候的可选自然化文案
 ```
@@ -41,6 +42,7 @@ Safari / PWA / 桌面浏览器
 ### Cloudflare 绑定
 
 - Worker 名称：`puffer-share`
+- Durable Object binding：`ROOMS`，类名 `RoomCoordinator`，SQLite 存储
 - KV binding：`BENCH`
 - D1 binding：`DB`，数据库名 `pufferwork-db`
 - R2 binding：`MEDIA`，桶名 `pufferwork-media-private`
@@ -121,22 +123,23 @@ Safari / PWA / 桌面浏览器
 1. 用户操作修改 `state`。
 2. `save()` 立即写入 localStorage，并触发界面更新。
 3. 已加入房间时，`scheduleRoomPush()` 防抖后经 Worker PUT 上传。
-4. Worker 写入 KV 房间快照，并把数组条目镜像到 D1。
-5. D1 条目全部可读后，Worker 才发送对应 Web Push。
+4. Worker 在该房间的 SQLite Durable Object 中原子校验 `baseRev` 并提交完整快照；同一旧版本的并发写入只能成功一次。
+5. Worker 把已提交快照镜像到 KV，并把数组条目镜像到 D1。
+6. D1 条目全部可读后，Worker 才发送对应 Web Push。
 
 ### 对方接收
 
 - 页面在前台时每 3 秒拉取一次；回到前台或收到 Service Worker 消息时立即拉取。
-- Worker GET 以 KV 快照为基础，并用 D1 的最新留言条目补强，避免 KV 跨节点传播较慢导致“通知到了但留言没有出现”。
-- 即使 `rev` 相同，前端仍会检查是否存在 D1 补回的新留言。
+- Worker GET 只返回同一个 Durable Object 快照中的完整数据、`rev` 和 `updatedAt`，不会混入其他存储来源的更高 revision。
+- 旧 KV 房间在第一次访问时无损迁移到 Durable Object；若 KV 的 meta、data 或 D1 索引暂时版本不一致，则返回 503 等待复制完成，不以旧数据初始化权威快照。
 - 点击留言通知时，PWA 会先拉取房间，再打开留言 Bottom Sheet。
 
 ### 同步问题排查顺序
 
-1. 查看 `https://sync.20051011.xyz/health` 是否返回 `ok: true`，并确认 KV/D1 可用。
+1. 查看 `https://sync.20051011.xyz/health` 是否返回 `ok: true`，并确认 Durable Object、KV、D1 可用。
 2. 检查两台设备的房间 ID、口令和成员身份 A/B 是否一致，不能只看昵称。
 3. 检查右上角同步胶囊和设置里的最近错误。
-4. 确认 Worker PUT 成功、D1 `room_records` 出现对应条目，再检查接收端 GET。
+4. 确认 Worker PUT 成功并返回递增 revision、D1 `room_records` 出现对应镜像，再检查接收端 GET。
 5. 最后才检查 UI；通知出现只证明推送成功，不代表接收端已经执行了最新前端代码。
 
 ## 6. 图片与缓存
@@ -297,7 +300,7 @@ npx wrangler pages deploy <白名单目录> --project-name pufferwork
 
 - `app.js` 和 `life.js` 仍较大，历史兼容逻辑较多；不要一次性大重构。
 - 前端仍保留部分旧页面实现，当前 `life.js` 是主要可见界面。删除旧代码前必须做完整入口审计。
-- KV 是最终兼容快照，D1 目前主要承担逐条镜像和即时留言补强，尚未完成所有业务类型的纯 D1 查询化。
+- Durable Object 是权威完整快照；KV 是回滚兼容镜像，D1 主要承担逐条镜像和通知可读性。回滚到不认识 `ROOMS` 的旧 Worker 会重新引入并发覆盖风险，禁止直接回滚旧 Worker。
 - Web Push 在 iOS 上依赖用户授权、PWA 安装状态和系统策略，不能承诺绝对实时；前台 3 秒轮询仍是同步兜底。
 - 当前相册 UI 上限 5 张偏保守。扩大前应先设计历史相册分页和 D1 查询，不要只改常量。
 - 完整 Chrome 性能追踪需要配置 chrome-devtools MCP；当前日常验证以代码检查、生产响应头和真实设备体验为主。

@@ -1,10 +1,10 @@
-// 河豚工作台 · 共享房间后端（Cloudflare Workers · service worker 格式）
+// 河豚工作台 · 共享房间后端（Cloudflare Workers · ES module 格式）
 // 接口约定：
 //   GET  /api/:roomId?pass=ACCESS_PASS   -> { ok, data, rev, updatedAt }  (口令错403 / 房间不存在404)
-//   PUT  /api/:roomId    body: { pass, data } -> { ok, rev, updatedAt }   (首次写入创建房间并设口令)
+//   PUT  /api/:roomId    body: { pass, baseRev, data } -> { ok, rev, updatedAt } (首次写入使用 baseRev=0)
 //   GET  /health                        -> { ok:true }
 // 说明：前端负责按条目合并，后端只做「按房间存储 + 口令校验 + 版本号」。
-//       KV 与 D1 通过 Worker 环境绑定注入。
+//       Durable Object、KV 与 D1 通过 Worker 环境绑定注入。
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -14,12 +14,16 @@ const cors = {
 
 // One KV value per room, with a bounded payload. Historical data is compacted by the client.
 const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
+// SQLite limits a single BLOB to 2 MiB. Keep chunks comfortably below that
+// while preserving the existing 8 MiB room-payload contract.
+const ROOM_SNAPSHOT_CHUNK_BYTES = 512 * 1024;
 const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_D1_RECORD_BYTES = 900 * 1024;
 const D1_MIRROR_BATCH_SIZE = 250;
 const MEDIA_ORPHAN_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 const MEDIA_CLEANUP_BATCH_SIZE = 50;
 import { buildPushPayload } from '@block65/webcrypto-web-push';
+import { DurableObject } from 'cloudflare:workers';
 
 const COMPANION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
@@ -232,34 +236,10 @@ async function mirrorRoomToD1(env, room, revision, updatedAt, data) {
     await env.DB.prepare(
       'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
       'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
-    ).bind(room, revision, updatedAt, 'kv+d1-readable').run();
+    ).bind(room, revision, updatedAt, 'do+kv+d1-readable').run();
   } catch (_) {
-    // D1 is currently a mirror only. Its failure must never delay or fail KV sync.
-  }
-}
-
-async function mergeLatestD1Messages(env, room, data, fallbackRevision) {
-  if (!env.DB) return { data, revision: fallbackRevision };
-  try {
-    const index = await env.DB.prepare('SELECT revision FROM room_sync_index WHERE room_id = ?').bind(room).first();
-    const rows = await env.DB.prepare(
-      "SELECT payload FROM room_records WHERE room_id = ? AND record_type = 'messages' ORDER BY updated_at DESC LIMIT 300"
-    ).bind(room).all();
-    const map = new Map();
-    const put = item => {
-      if (!item || item.id == null) return;
-      const current = map.get(String(item.id));
-      if (!current || Number(item.updatedAt || item.createdAt || 0) >= Number(current.updatedAt || current.createdAt || 0)) map.set(String(item.id), item);
-    };
-    (Array.isArray(data?.messages) ? data.messages : []).forEach(put);
-    for (const row of rows.results || []) {
-      try { put(JSON.parse(row.payload)); } catch (_) {}
-    }
-    const merged = data ? { ...data } : {};
-    merged.messages = [...map.values()].sort((a, b) => Number(a.updatedAt || a.createdAt || 0) - Number(b.updatedAt || b.createdAt || 0));
-    return { data: merged, revision: Math.max(Number(fallbackRevision) || 0, Number(index?.revision) || 0) };
-  } catch (_) {
-    return { data, revision: fallbackRevision };
+    // D1 is a readable mirror only. Its failure must never fail the authoritative
+    // Durable Object commit.
   }
 }
 
@@ -353,6 +333,203 @@ function json(obj, status, headers) {
   });
 }
 
+function roomMeta(sql) {
+  return sql.exec(
+    'SELECT pass, revision, updated_at AS updatedAt, chunk_count AS chunkCount, payload_bytes AS payloadBytes FROM room_meta WHERE singleton = 1'
+  ).toArray()[0] || null;
+}
+
+function roomPayloadBytes(data) {
+  return new TextEncoder().encode(JSON.stringify(data));
+}
+
+function writeRoomSnapshot(sql, pass, revision, updatedAt, bytes) {
+  sql.exec('DELETE FROM room_chunks');
+  let chunkCount = 0;
+  for (let offset = 0; offset < bytes.byteLength; offset += ROOM_SNAPSHOT_CHUNK_BYTES) {
+    const chunk = bytes.slice(offset, Math.min(offset + ROOM_SNAPSHOT_CHUNK_BYTES, bytes.byteLength));
+    sql.exec('INSERT INTO room_chunks (chunk_index, payload) VALUES (?, ?)', chunkCount, chunk.buffer);
+    chunkCount += 1;
+  }
+  sql.exec(
+    'INSERT INTO room_meta (singleton, pass, revision, updated_at, chunk_count, payload_bytes) VALUES (1, ?, ?, ?, ?, ?) ' +
+    'ON CONFLICT(singleton) DO UPDATE SET pass = excluded.pass, revision = excluded.revision, updated_at = excluded.updated_at, chunk_count = excluded.chunk_count, payload_bytes = excluded.payload_bytes',
+    pass, revision, updatedAt, chunkCount, bytes.byteLength
+  );
+}
+
+function readRoomSnapshot(sql, knownMeta = null) {
+  const meta = knownMeta || roomMeta(sql);
+  if (!meta) return null;
+  const rows = sql.exec('SELECT payload FROM room_chunks ORDER BY chunk_index ASC').toArray();
+  if (rows.length !== Number(meta.chunkCount)) throw new Error('room_snapshot_chunk_count_mismatch');
+  const bytes = new Uint8Array(Number(meta.payloadBytes));
+  let offset = 0;
+  for (const row of rows) {
+    const source = row.payload instanceof ArrayBuffer
+      ? new Uint8Array(row.payload)
+      : ArrayBuffer.isView(row.payload)
+        ? new Uint8Array(row.payload.buffer, row.payload.byteOffset, row.payload.byteLength)
+        : null;
+    if (!source || offset + source.byteLength > bytes.byteLength) throw new Error('room_snapshot_chunk_invalid');
+    bytes.set(source, offset);
+    offset += source.byteLength;
+  }
+  if (offset !== bytes.byteLength) throw new Error('room_snapshot_size_mismatch');
+  return { ...meta, data: JSON.parse(new TextDecoder().decode(bytes)) };
+}
+
+// One instance is selected deterministically for each room. All reads and
+// compare-and-set writes for that room therefore pass through one strongly
+// consistent SQLite database instead of racing through eventually-consistent KV.
+export class RoomCoordinator extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.sql = ctx.storage.sql;
+    this.sql.exec(
+      'CREATE TABLE IF NOT EXISTS room_meta (' +
+      'singleton INTEGER PRIMARY KEY CHECK (singleton = 1), pass TEXT NOT NULL, revision INTEGER NOT NULL, ' +
+      'updated_at INTEGER NOT NULL, chunk_count INTEGER NOT NULL, payload_bytes INTEGER NOT NULL' +
+      '); CREATE TABLE IF NOT EXISTS room_chunks (chunk_index INTEGER PRIMARY KEY, payload BLOB NOT NULL);'
+    );
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    try {
+      if (request.method === 'GET' && (url.pathname === '/meta' || url.pathname === '/snapshot')) {
+        const meta = roomMeta(this.sql);
+        if (!meta) return json({ error: 'not_found' }, 404);
+        if (meta.pass !== (url.searchParams.get('pass') || '')) return json({ error: 'forbidden' }, 403);
+        if (url.pathname === '/meta') return json({ ok: true, rev: meta.revision, updatedAt: meta.updatedAt }, 200);
+        const snapshot = readRoomSnapshot(this.sql, meta);
+        return json({ ok: true, data: snapshot.data, rev: meta.revision, updatedAt: meta.updatedAt }, 200);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/seed') {
+        const body = await request.json();
+        const pass = String(body?.pass || '');
+        const revision = Number(body?.revision);
+        const updatedAt = Number(body?.updatedAt) || Date.now();
+        if (!pass || body?.data === undefined || !Number.isInteger(revision) || revision < 0) return json({ error: 'bad_seed' }, 400);
+        const bytes = roomPayloadBytes(body.data);
+        if (bytes.byteLength > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413);
+        const result = this.ctx.storage.transactionSync(() => {
+          const current = roomMeta(this.sql);
+          if (current) {
+            if (current.pass !== pass) return { error: 'forbidden', status: 403 };
+            return { ok: true, rev: current.revision, updatedAt: current.updatedAt, seeded: false };
+          }
+          writeRoomSnapshot(this.sql, pass, revision, updatedAt, bytes);
+          return { ok: true, rev: revision, updatedAt, seeded: true };
+        });
+        return json(result.error ? { error: result.error } : result, result.status || 200);
+      }
+
+      if (request.method === 'PUT' && url.pathname === '/snapshot') {
+        const body = await request.json();
+        const pass = String(body?.pass || '');
+        const baseRev = Number(body?.baseRev);
+        if (!pass) return json({ error: 'pass_required' }, 400);
+        if (body?.data === undefined) return json({ error: 'data_required' }, 400);
+        if (!Number.isInteger(baseRev) || baseRev < 0) return json({ error: 'bad_revision' }, 400);
+        const bytes = roomPayloadBytes(body.data);
+        if (bytes.byteLength > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413);
+        const author = String(body?.author || '');
+        const result = this.ctx.storage.transactionSync(() => {
+          const current = roomMeta(this.sql);
+          if (current && current.pass !== pass) return { error: 'forbidden', status: 403 };
+          const currentRevision = Number(current?.revision) || 0;
+          if (baseRev !== currentRevision) {
+            return { error: 'conflict', status: 409, rev: currentRevision, updatedAt: Number(current?.updatedAt) || 0 };
+          }
+          const previous = current ? readRoomSnapshot(this.sql, current).data : {};
+          const revision = currentRevision + 1;
+          const updatedAt = Date.now();
+          const change = pushChanges(previous, body.data, author);
+          writeRoomSnapshot(this.sql, pass, revision, updatedAt, bytes);
+          return { ok: true, rev: revision, updatedAt, change };
+        });
+        if (result.error) return json({ error: result.error, rev: result.rev, updatedAt: result.updatedAt }, result.status);
+        return json(result, 200);
+      }
+      return json({ error: 'not_found' }, 404);
+    } catch (error) {
+      console.error('RoomCoordinator failure', error);
+      return json({ error: 'storage_failure' }, 500);
+    }
+  }
+}
+
+async function callRoomCoordinator(env, room, path, init) {
+  if (!env.ROOMS) return { status: 503, body: { error: 'room_storage_unavailable' } };
+  const stub = env.ROOMS.get(env.ROOMS.idFromName(room));
+  const response = await stub.fetch(new Request('https://room.internal' + path, init));
+  const body = await response.json().catch(() => ({ error: 'storage_failure' }));
+  return { status: response.status, body };
+}
+
+async function roomRevisionInD1(env, room) {
+  if (!env.DB) return null;
+  try {
+    const row = await env.DB.prepare('SELECT revision FROM room_sync_index WHERE room_id = ?').bind(room).first();
+    const revision = Number(row?.revision);
+    return Number.isInteger(revision) && revision >= 0 ? revision : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function ensureRoomCoordinator(env, room, pass) {
+  let result = await callRoomCoordinator(env, room, '/meta?pass=' + encodeURIComponent(pass), { method: 'GET' });
+  if (result.status !== 404) return result;
+
+  let meta, record;
+  try {
+    [meta, record] = await Promise.all([
+      env.BENCH.get('meta:' + room, { type: 'json' }),
+      env.BENCH.get('room:' + room, { type: 'json' })
+    ]);
+  } catch (_) {
+    return { status: 503, body: { error: 'legacy_storage_unavailable' } };
+  }
+
+  if (!meta) {
+    // A data-only KV record or a D1 sync marker proves that this is an existing
+    // room whose password metadata is temporarily unavailable. Never let a new
+    // client snapshot take its place during that eventual-consistency window.
+    if (record || await roomRevisionInD1(env, room) !== null) return { status: 503, body: { error: 'legacy_snapshot_unavailable' } };
+    return result;
+  }
+  if (meta.pass !== pass) return { status: 403, body: { error: 'forbidden' } };
+  if (!record || !Object.prototype.hasOwnProperty.call(record, 'data')) {
+    return { status: 503, body: { error: 'legacy_snapshot_unavailable' } };
+  }
+  const revision = Number(record.rev);
+  if (!Number.isInteger(revision) || revision < 0) return { status: 503, body: { error: 'legacy_snapshot_invalid' } };
+  const metaRevision = Number(meta.rev);
+  const d1Revision = await roomRevisionInD1(env, room);
+  // A newer metadata or D1 marker means this edge has not received the matching
+  // KV payload yet. Wait for replication instead of permanently seeding stale
+  // data into the authoritative coordinator.
+  if ((Number.isInteger(metaRevision) && metaRevision > revision) || (d1Revision !== null && d1Revision > revision)) {
+    return { status: 503, body: { error: 'legacy_snapshot_unavailable' } };
+  }
+  return callRoomCoordinator(env, room, '/seed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pass, data: record.data, revision, updatedAt: Number(record.updatedAt) || Number(meta.updatedAt) || Date.now() })
+  });
+}
+
+async function mirrorRoomToKV(env, room, pass, data, revision, updatedAt) {
+  // Data is written first so an old Worker can never observe a new meta revision
+  // paired with an older payload. KV remains a compatibility mirror only.
+  await env.BENCH.put('room:' + room, JSON.stringify({ data, rev: revision, updatedAt }));
+  await env.BENCH.put('meta:' + room, JSON.stringify({ pass, rev: revision, updatedAt }));
+}
+
 async function handle(request, env, ctx) {
   const url = new URL(request.url);
 
@@ -361,7 +538,7 @@ async function handle(request, env, ctx) {
   }
 
   if (url.pathname === '/health') {
-    return json({ ok: true, storage: { kv: true, d1: !!env.DB }, ai: !!env.AI }, 200, cors);
+    return json({ ok: true, storage: { durableObject: !!env.ROOMS, kv: true, d1: !!env.DB }, ai: !!env.AI }, 200, cors);
   }
 
   if (url.pathname === '/api/v1/push/public-key' && request.method === 'GET') {
@@ -525,26 +702,23 @@ async function handle(request, env, ctx) {
   const room = decodeURIComponent(m[1]);
   const isV1 = !!v1;
   if (!room || room.length > 64) return json({ error: 'bad_room' }, 400, cors);
-  const dataKey = 'room:' + room;
-  const metaKey = 'meta:' + room;
-
   if (request.method === 'GET') {
     const pass = url.searchParams.get('pass') || '';
-    const meta = await env.BENCH.get(metaKey, { type: 'json' });
-    if (!meta) return json({ error: 'not_found' }, 404, cors);
-    if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
-    const rec = await env.BENCH.get(dataKey, { type: 'json' });
-    // KV 的两个 key 可能在不同边缘节点短暂不同步。
-    // 因此客户端只能以“实际数据记录”携带的版本为准，不能把 meta 的
-    // 较新版本和旧 data 混在一起返回；否则客户端会记住一个未拿到内容的
-    // 版本号，之后错误地跳过真正的新数据。
-    const dataRev = Number(rec && rec.rev) || 0;
-    const dataUpdatedAt = Number(rec && rec.updatedAt) || 0;
-    const readable = await mergeLatestD1Messages(env, room, rec ? rec.data : null, dataRev);
-    return json(
-      { ok: true, schemaVersion: 1, roomId: room, data: readable.data, rev: readable.revision, updatedAt: dataUpdatedAt },
-      200, cors
-    );
+    const ready = await ensureRoomCoordinator(env, room, pass);
+    if (ready.status !== 200) return json(ready.body, ready.status, cors);
+    const snapshot = await callRoomCoordinator(env, room, '/snapshot?pass=' + encodeURIComponent(pass), { method: 'GET' });
+    if (snapshot.status !== 200) return json(snapshot.body, snapshot.status, cors);
+    // Full payload, revision and timestamp now come from one atomic snapshot.
+    // D1 is deliberately not merged into this response: it is a readable mirror,
+    // not a source from which a newer whole-room revision can be inferred.
+    return json({
+      ok: true,
+      schemaVersion: 1,
+      roomId: room,
+      data: snapshot.body.data,
+      rev: snapshot.body.rev,
+      updatedAt: snapshot.body.updatedAt
+    }, 200, cors);
   }
 
   if (request.method === 'PUT') {
@@ -555,33 +729,35 @@ async function handle(request, env, ctx) {
     if (!body || body.data === undefined) return json({ error: 'data_required' }, 400, cors);
     const payloadBytes = new TextEncoder().encode(JSON.stringify(body.data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) return json({ error: 'payload_too_large' }, 413, cors);
-    const meta = await env.BENCH.get(metaKey, { type: 'json' });
-    const previous = await env.BENCH.get(dataKey, { type: 'json' });
-    if (meta) {
-      if (meta.pass !== pass) return json({ error: 'forbidden' }, 403, cors);
-      // 拒绝基于旧版本的写入。前端会重新拉取、按条目合并后再提交，
-      // 这样双方同时编辑时不会发生“后一份整屋覆盖前一份”。
-      const baseRev = Number(body.baseRev);
-      if (!Number.isInteger(baseRev) || baseRev !== Number(meta.rev || 0)) {
-        return json({ error: 'conflict', rev: Number(meta.rev || 0), updatedAt: meta.updatedAt }, 409, cors);
-      }
-    } else {
-      if (!pass) return json({ error: 'pass_required' }, 400, cors);
-      if (body.baseRev !== undefined && Number(body.baseRev) !== 0) return json({ error: 'conflict', rev: 0 }, 409, cors);
+    const baseRev = Number(body.baseRev);
+    if (!Number.isInteger(baseRev) || baseRev < 0) return json({ error: 'bad_revision' }, 400, cors);
+
+    const ready = await ensureRoomCoordinator(env, room, pass);
+    if (ready.status !== 200 && ready.status !== 404) return json(ready.body, ready.status, cors);
+
+    const author = String(body.data?.settings?.me || body.author || '');
+    const committed = await callRoomCoordinator(env, room, '/snapshot', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pass, baseRev, data: body.data, author })
+    });
+    if (committed.status !== 200) return json(committed.body, committed.status, cors);
+
+    const rev = Number(committed.body.rev);
+    const now = Number(committed.body.updatedAt);
+    // The coordinator has already committed the authoritative snapshot. Mirror
+    // failures cannot be reported as a failed CAS because blindly retrying the
+    // same baseRev would only create a conflict and cannot roll back the commit.
+    try {
+      await mirrorRoomToKV(env, room, pass, body.data, rev, now);
+    } catch (error) {
+      console.error('KV room mirror failed', room, rev, error);
     }
-    const rev = (meta ? meta.rev : 0) + 1;
-    const now = Date.now();
-    // 先写完整数据，再公布新版本。即使 KV 复制存在短暂延迟，GET 仍会以
-    // dataKey 的 rev 为准，客户端会继续轮询，直到拿到这份实际内容。
-    await env.BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
-    await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
-    // KV remains the source of truth. D1 mirrors individual records after the KV
-    // write; failures are contained so the existing KV sync remains available.
     // Commit the queryable D1 mirror before notifying the other person. A push
     // must never arrive before the corresponding message can be read back.
     await mirrorRoomToD1(env, room, rev, now, body.data);
-    const change = pushChanges(previous?.data || {}, body.data, String(body.data?.settings?.me || body.author || ''));
-    const pushes = sendRoomPushes(env, room, String(body.data?.settings?.me || body.author || ''), change);
+    const change = committed.body.change || null;
+    const pushes = sendRoomPushes(env, room, author, change);
     if (ctx?.waitUntil) ctx.waitUntil(pushes);
     else pushes.catch(() => {});
     return json({ ok: true, schemaVersion: 1, roomId: room, rev, updatedAt: now }, 200, cors);

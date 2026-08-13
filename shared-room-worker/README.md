@@ -2,13 +2,14 @@
 
 让「两个人共享同一个工作台」的免费后端。
 
-当前生产后端为 **Cloudflare Worker + KV + D1 + R2**，并通过自定义域名 `https://sync.20051011.xyz` 提供服务。不要改回国内网络不稳定的 `*.workers.dev`，也不要重新切换到已停用的 Supabase 方案。
+本目录配置的后端架构为 **Cloudflare Worker + Durable Objects + KV + D1 + R2**；正式服务通过自定义域名 `https://sync.20051011.xyz` 提供。不要改回国内网络不稳定的 `*.workers.dev`，也不要重新切换到已停用的 Supabase 方案。
 
 ## 它能做什么
 
 - 为「共享房间」功能提供带**访问口令**的云端存储
 - 前端两人各填同一个「房间地址 + 房间 ID + 口令」，即可实时同步：待办 / 健身记录 / 素材库 / 推文 / AI 视频
-- KV 保存兼容快照，D1 保存逐条记录并补强即时读取，R2 保存照片
+- SQLite Durable Object 原子保存每个房间的完整快照和版本号
+- KV 保存兼容快照，D1 保存逐条镜像，R2 保存照片
 - 数据按条目合并，删除也会同步（不会互相覆盖）
 
 ## 部署步骤
@@ -17,45 +18,24 @@
 
 有两种方式，效果完全一样，任选其一：
 
-### 路线 A：网页后台（不装任何软件，推荐）
-
-1. 打开 https://dash.cloudflare.com ，左侧菜单 **Workers 和 Pages** → 顶部 **KV** → **创建命名空间**
-   - 名称填 `BENCH` → 创建后，**复制它的「ID」**（一长串字母数字）
-2. 左侧菜单 **Workers 和 Pages** → **创建** → **创建 Worker**
-   - 名称填 `puffer-share` → 点 **部署**（先用默认代码部署一次，拿到 `*.workers.dev` 子域）
-3. 进入该 Worker → **编辑代码**，把里面的默认代码**全部删掉**，粘贴本目录 `worker.js` 的内容 → **保存并部署**
-4. 进入该 Worker → **设置** → **变量** → **KV 命名空间绑定** → **添加绑定**
-   - 变量名填 `BENCH`（必须和代码里的 binding 完全一致）→ 选中第 1 步创建的命名空间 → **保存**
-5. 回到 Worker 首页，复制地址，类似：
-   ```
-   https://puffer-share.<你的子域>.workers.dev
-   ```
-
-### 路线 B：命令行 Wrangler
+### 使用命令行 Wrangler
 
 > 前置：本机需要安装 Node.js + npm（https://nodejs.org，装 LTS 版即可）
 
-1. 安装并登录 Wrangler（Cloudflare 命令行）
+1. 安装依赖并登录 Wrangler（Cloudflare 命令行）
 
    ```bash
-   npm install -g wrangler
-   wrangler login
+   npm install
+   npx wrangler login
    ```
 
-2. 在本目录创建 KV 命名空间，记下输出的 **id**
+2. 确认 `wrangler.toml` 中的 KV、D1、R2 和路由属于目标 Cloudflare 账号。
+
+3. 先执行完整本地测试，再部署；Wrangler 会按 `exports.RoomCoordinator` 创建 SQLite Durable Object 命名空间。
 
    ```bash
-   wrangler kv namespace create BENCH
-   # 输出示例：
-   # { "binding": "BENCH", "id": "3a4b5c6d7e8f90a1b2c3d4e5f6a7b8c9" }
-   ```
-
-3. 把 `wrangler.toml` 里的 `REPLACE_WITH_YOUR_KV_ID` 换成上一步的 id
-
-4. 部署
-
-   ```bash
-   wrangler deploy
+   npm test
+   npx wrangler deploy
    ```
 
    部署成功会返回一个地址，类似：
@@ -64,7 +44,7 @@
    https://puffer-share.<你的子域>.workers.dev
    ```
 
-5. 验证（可选）
+4. 验证（可选）
 
    ```bash
    curl https://puffer-share.<你的子域>.workers.dev/health
@@ -75,9 +55,7 @@
 
 生产环境固定使用自定义域名 `sync.20051011.xyz`。`*.workers.dev` 在部分中国大陆网络下可能不可达，因此只用于 Cloudflare 内部默认地址，不写回前端设置。
 
-> 本后端代码使用 **service worker 格式**（绑定 `BENCH` 以全局变量注入），可直接通过 Cloudflare API 部署：
-> `PUT /accounts/{accountId}/workers/scripts/puffer-share`（Content-Type: application/javascript，body 为 worker.js 源码），
-> 再用 `PUT .../scripts/puffer-share/bindings` 绑定 KV，或把 bindings 写进部署 metadata。无需网页操作，适合自动化 / 委托部署。
+> 本后端使用 ES module Worker。部署必须同时包含 `ROOMS` Durable Object、`BENCH` KV、`DB` D1、`MEDIA` R2 和 `AI` 绑定；不要只在网页编辑器中粘贴单个 `worker.js` 文件。
 
 ## 在工作台里使用
 
@@ -99,7 +77,7 @@ Cloudflare 免费额度：每天 10 万次 KV 读取、1000 万次写入，个�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/:roomId?pass=口令` | 读取房间数据 `{ ok, data, rev, updatedAt }`（房间不存在 404，口令错 403） |
-| PUT | `/api/:roomId` | 写入，body `{ pass, data }`；首次写入创建房间并设口令，返回 `{ ok, rev, updatedAt }` |
+| PUT | `/api/:roomId` | 写入，body `{ pass, baseRev, data }`；首次写入需 `baseRev: 0`，冲突返回 409 |
 | GET | `/health` | 健康检查 |
 
 合并逻辑在前端完成（按条目 ID 合并、deleted 软删除标记优先），后端只负责「按房间存储 + 口令校验 + 版本号」。

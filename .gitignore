@@ -1,5 +1,6 @@
 node_modules/
 .wrangler/
+.wrangler-test-build/
 .DS_Store
 *.log
 assets/*-source.png
