@@ -70,6 +70,8 @@
     trainingContent: 800,
     trainingMeta: 80,
     trainingNote: 800,
+    travelPlace: 120,
+    travelNote: 1200,
     wish: 160,
     moodNote: 240,
     photoCaption: 200,
@@ -362,6 +364,7 @@
     trainings: [],
     messages: [],
     gallery: [],
+    travels: [],
     meals: defaultMeals(),
     wishes: [],
     water: {},
@@ -403,6 +406,7 @@
         if (!state.todos) state.todos = [];
       if (!state.messages) state.messages = [];
       if (!state.gallery) state.gallery = [];
+      if (!state.travels) state.travels = [];
       if (!state.meals) state.meals = defaultMeals();
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
@@ -2473,7 +2477,7 @@
 
   // Keep sync payloads bounded: remove old tombstones and cap growing collections.
   const ROOM_TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, meals: 300, wishes: 200, hydrationLog: 1200 };
+  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, travels: 300, meals: 300, wishes: 200, hydrationLog: 1200 };
   // 图片会以压缩后的 data URL 随相册同步，8MB 足够日常使用，同时仍能拦截异常膨胀。
   const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
   function roomItemTime(item) { return Number(item && (item.updatedAt || item.createdAt)) || 0; }
@@ -2507,6 +2511,7 @@
       trainings: compactRoomArray(state.trainings, ROOM_ARRAY_LIMITS.trainings, now),
       messages: compactRoomArray(state.messages, ROOM_ARRAY_LIMITS.messages, now),
       gallery: compactRoomArray(state.gallery, ROOM_ARRAY_LIMITS.gallery, now),
+      travels: compactRoomArray(state.travels, ROOM_ARRAY_LIMITS.travels, now),
       meals: compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now),
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
@@ -2584,6 +2589,7 @@
       trainings: mergeArr(local.trainings, remote.trainings),
       messages: mergeArr(local.messages, remote.messages),
       gallery: mergeArr(local.gallery, remote.gallery),
+      travels: mergeArr(local.travels, remote.travels),
       meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
       wishes: mergeArr(local.wishes, remote.wishes),
       hydrationLog: mergeArr(local.hydrationLog, remote.hydrationLog),
@@ -3175,6 +3181,7 @@
         trainings: state.trainings,
         messages: state.messages,
         gallery: state.gallery,
+        travels: state.travels,
         wishes: state.wishes,
         fortune: state.fortune,
         dailyStatus: state.dailyStatus,
@@ -3203,6 +3210,7 @@
     deleteWish(id) { const item=state.wishes.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteMessage(id) { const item=state.messages.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
+    deleteTravel(id) { const item=state.travels.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),author:state.settings.me||'a',dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     addWater(delta) { addWater(Number(delta)||0); return hydrationTotals(); },
     getHydrationToday() { const me=state.settings.me||'a', ta=me==='a'?'b':'a', todayRecords=person=>(state.hydrationLog||[]).filter(item=>item&&!item.deleted&&item.author===person&&item.date===todayKey()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); return { me:hydrationTotals(me), partner:hydrationTotals(ta), goal:WATER_GOAL_ML, drinkLimit:DRINK_WARN_ML, defaultMl:DEFAULT_HYDRATION_ML, records:todayRecords(me), partnerRecords:todayRecords(ta) }; },
@@ -3222,6 +3230,7 @@
     lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
     async addMessageFile(file, text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (value === null || (!file && !value)) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     async addGalleryFile(file, caption) { const safeCaption = textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明'); if (!file || safeCaption === null || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); const stored = await storeRoomImage(dataUrl); if (!stored) return false; state.gallery.push({ id: uid(), author: state.settings.me || 'a', dataUrl: stored.dataUrl, url: stored.url, caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addTravel(input, file) { const value=input||{}, place=textWithinLimit(value.place, TEXT_LIMITS.travelPlace, '地点'), note=textWithinLimit(value.note, TEXT_LIMITS.travelNote, '旅行记录'); if(!place||note===null)return false; let stored={dataUrl:'',url:''}; if(file){const dataUrl=await compressRoomImage(file);stored=await storeRoomImage(dataUrl);if(!stored)return false;} const lat=Number(value.lat),lng=Number(value.lng),status=value.status==='wish'?'wish':'visited'; state.travels.push({id:uid(),author:state.settings.me||'a',place,date:String(value.date||todayKey()),note,status,lat:Number.isFinite(lat)?Math.max(-90,Math.min(90,lat)):null,lng:Number.isFinite(lng)?Math.max(-180,Math.min(180,lng)):null,dataUrl:stored.dataUrl||'',url:stored.url||'',createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
   goPage('dashboard');
