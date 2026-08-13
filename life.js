@@ -103,5 +103,6 @@
   window.addEventListener('puffer-state-change', () => {render();maybeOfferReview();});
   window.addEventListener('puffer-presence-change', render);
   window.addEventListener('puffer-life-home', () => { selectTab('today'); render(); });
+  window.addEventListener('puffer-life-messages', () => { selectTab('things'); render(); requestAnimationFrame(() => messageSheet()); });
   document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();maybeOfferReview(); });
 })();

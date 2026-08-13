@@ -487,6 +487,10 @@
   }
 
   function goPage(name) {
+    if (name === 'messages' && document.getElementById('lifeApp')) {
+      window.dispatchEvent(new CustomEvent('puffer-life-messages'));
+      return;
+    }
     // 新版四页界面把「首页」统一收敛到“今天”。从旧工具页返回首页时，恢复新版外壳，避免落回隐藏的旧仪表板。
     if (name === 'dashboard' && document.getElementById('lifeApp')) {
       document.body.classList.add('life-mode');
@@ -1140,7 +1144,7 @@
       if (state.settings.notifySystem !== false && 'Notification' in window) {
         if (Notification.permission === 'granted') {
           const n = new Notification('💬 新留言 · ' + who, { body: text, tag: 'puffer-msg' });
-          n.onclick = () => { try { window.focus(); } catch (e) {} goPage('messages'); n.close(); };
+          n.onclick = () => { try { window.focus(); } catch (e) {} if (document.getElementById('lifeApp')) window.dispatchEvent(new CustomEvent('puffer-life-messages')); else goPage('messages'); n.close(); };
         } else if (Notification.permission === 'default') {
           // 轮询回调里 requestPermission 无用户手势会被浏览器忽略，这里改为引导用户去开启
           if (!state.settings._notifyHintShown) {

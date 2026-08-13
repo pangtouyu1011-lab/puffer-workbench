@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script>
     (() => {
-      const pageVersion = '20260813-push-status-review-icons-1';
+      const pageVersion = '20260813-message-pwa-fix-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -27,6 +27,7 @@
           location.replace(nextUrl);
         })
         .catch(() => {});
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(reg => reg.update()).catch(() => {});
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -34,7 +35,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=20260812-settings-fullscreen-1" />
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-  <link rel="stylesheet" href="life.css?v=20260812-pwa-fast-assets-1" />
+  <link rel="stylesheet" href="life.css?v=20260813-message-pwa-fix-1" />
   <link rel="stylesheet" href="life-ritual.css?v=20260812-sync-cors-fix-1" />
   <link rel="stylesheet" href="life-dashboard.css?v=20260812-sync-cors-fix-1" />
   <link rel="stylesheet" href="life-dashboard-music.css?v=20260812-sync-cors-fix-1" />
@@ -619,9 +620,9 @@
 
   <!-- 引入依赖：QRCode 用于同步 -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="app.js?v=20260812-push-test-2"></script>
-  <script src="push.js?v=20260813-push-status-review-icons-1"></script>
-  <script src="life.js?v=20260812-pwa-fast-assets-1"></script>
+  <script src="app.js?v=20260813-message-pwa-fix-1"></script>
+  <script src="push.js?v=20260813-message-pwa-fix-1"></script>
+  <script src="life.js?v=20260813-message-pwa-fix-1"></script>
   <script src="life-complete-state.js?v=20260812-sync-cors-fix-1"></script>
 </body>
 </html>
