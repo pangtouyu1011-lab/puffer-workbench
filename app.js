@@ -687,6 +687,8 @@
   let galleryTimer = null;
   let galleryIdx = 0;
   function renderGallerySlider() {
+    // 新版首页会单独按需渲染照片。旧仪表盘在启动期是隐藏的，避免它提前下载整个相册。
+    if (document.documentElement.classList.contains('life-boot')) return;
     const el = $('#gallerySlider');
     if (!el) return;
     const dotsWrap = $('#galleryDots');

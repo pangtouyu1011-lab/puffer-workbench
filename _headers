@@ -10,3 +10,5 @@
   Cache-Control: no-cache, must-revalidate
 /service-worker.js
   Cache-Control: no-store, no-cache, must-revalidate
+/assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
