@@ -12,6 +12,7 @@
 - 数据：localStorage 本地副本 + Cloudflare Worker API；KV 保存房间快照，D1 保存逐条同步记录，R2 保存照片（`https://sync.20051011.xyz`）
 
 ## 文件结构
+- `PUFFER_WORKBENCH_HANDOFF.md` — 当前生产架构、同步链路、发布与排障的完整交接基准
 - `index.html` — 全部页面骨架 + 内联 `<style>`（部分组件样式）+ PWA 声明（apple-touch-icon / manifest）
 - `styles.css` — 全局样式
 - `app.js` — 全部业务逻辑（约 79KB 单文件，是主要编辑对象）
