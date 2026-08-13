@@ -36,7 +36,7 @@ function pushChanges(previous, next, author) {
   const fresh = (type, label, list) => {
     const oldIds = new Set(Array.isArray(previous?.[type]) ? previous[type].map(item => item?.id) : []);
     const item = (Array.isArray(list) ? list : []).find(value => value?.id && !oldIds.has(value.id) && value.author === author && sameDay(value.createdAt));
-    return item ? { title: `新的${label}`, body: item.text || item.caption || `TA 刚刚更新了${label}。`, tag: `puffer-${type}` } : null;
+    return item ? { kind: type, title: `新的${label}`, body: item.text || item.caption || `TA 刚刚更新了${label}。`, tag: `puffer-${type}` } : null;
   };
   return fresh('messages', '留言', next?.messages) || fresh('gallery', '照片', next?.gallery) || fresh('todos', '待办', next?.todos) || null;
 }
@@ -199,10 +199,6 @@ function roomMirrorRecords(data, revision, now) {
 async function mirrorRoomToD1(env, room, revision, updatedAt, data) {
   if (!env.DB) return;
   try {
-    await env.DB.prepare(
-      'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
-      'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
-    ).bind(room, revision, updatedAt, 'kv+d1-mirror').run();
     const records = roomMirrorRecords(data, revision, updatedAt);
     const statement = env.DB.prepare(
       'INSERT INTO room_records (room_id, record_type, record_id, payload, created_at, updated_at, deleted, last_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ' +
@@ -231,8 +227,39 @@ async function mirrorRoomToD1(env, room, revision, updatedAt, data) {
       ));
       if (batch.length) await env.DB.batch(batch);
     }
+    // Publish the D1 revision only after every record is queryable. Receivers can
+    // then safely use this revision as the "all records committed" marker.
+    await env.DB.prepare(
+      'INSERT INTO room_sync_index (room_id, revision, updated_at, storage_backend) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT(room_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, storage_backend = excluded.storage_backend'
+    ).bind(room, revision, updatedAt, 'kv+d1-readable').run();
   } catch (_) {
     // D1 is currently a mirror only. Its failure must never delay or fail KV sync.
+  }
+}
+
+async function mergeLatestD1Messages(env, room, data, fallbackRevision) {
+  if (!env.DB) return { data, revision: fallbackRevision };
+  try {
+    const index = await env.DB.prepare('SELECT revision FROM room_sync_index WHERE room_id = ?').bind(room).first();
+    const rows = await env.DB.prepare(
+      "SELECT payload FROM room_records WHERE room_id = ? AND record_type = 'messages' ORDER BY updated_at DESC LIMIT 300"
+    ).bind(room).all();
+    const map = new Map();
+    const put = item => {
+      if (!item || item.id == null) return;
+      const current = map.get(String(item.id));
+      if (!current || Number(item.updatedAt || item.createdAt || 0) >= Number(current.updatedAt || current.createdAt || 0)) map.set(String(item.id), item);
+    };
+    (Array.isArray(data?.messages) ? data.messages : []).forEach(put);
+    for (const row of rows.results || []) {
+      try { put(JSON.parse(row.payload)); } catch (_) {}
+    }
+    const merged = data ? { ...data } : {};
+    merged.messages = [...map.values()].sort((a, b) => Number(a.updatedAt || a.createdAt || 0) - Number(b.updatedAt || b.createdAt || 0));
+    return { data: merged, revision: Math.max(Number(fallbackRevision) || 0, Number(index?.revision) || 0) };
+  } catch (_) {
+    return { data, revision: fallbackRevision };
   }
 }
 
@@ -513,8 +540,9 @@ async function handle(request, env, ctx) {
     // 版本号，之后错误地跳过真正的新数据。
     const dataRev = Number(rec && rec.rev) || 0;
     const dataUpdatedAt = Number(rec && rec.updatedAt) || 0;
+    const readable = await mergeLatestD1Messages(env, room, rec ? rec.data : null, dataRev);
     return json(
-      { ok: true, schemaVersion: 1, roomId: room, data: rec ? rec.data : null, rev: dataRev, updatedAt: dataUpdatedAt },
+      { ok: true, schemaVersion: 1, roomId: room, data: readable.data, rev: readable.revision, updatedAt: dataUpdatedAt },
       200, cors
     );
   }
@@ -547,11 +575,11 @@ async function handle(request, env, ctx) {
     // dataKey 的 rev 为准，客户端会继续轮询，直到拿到这份实际内容。
     await env.BENCH.put(dataKey, JSON.stringify({ data: body.data, rev, updatedAt: now }));
     await env.BENCH.put(metaKey, JSON.stringify({ pass, rev, updatedAt: now }));
-    // KV remains the source of truth. D1 mirrors records after the KV write and
-    // runs in the background, so it cannot delay or interrupt the existing sync.
-    const mirror = mirrorRoomToD1(env, room, rev, now, body.data);
-    if (ctx?.waitUntil) ctx.waitUntil(mirror);
-    else mirror.catch(() => {});
+    // KV remains the source of truth. D1 mirrors individual records after the KV
+    // write; failures are contained so the existing KV sync remains available.
+    // Commit the queryable D1 mirror before notifying the other person. A push
+    // must never arrive before the corresponding message can be read back.
+    await mirrorRoomToD1(env, room, rev, now, body.data);
     const change = pushChanges(previous?.data || {}, body.data, String(body.data?.settings?.me || body.author || ''));
     const pushes = sendRoomPushes(env, room, String(body.data?.settings?.me || body.author || ''), change);
     if (ctx?.waitUntil) ctx.waitUntil(pushes);

@@ -2768,7 +2768,13 @@
       syncFailed = false;
       updateSyncPill();
       updateRoomStatus();
-      if (remote.rev === r.lastRev) return; // 无变化
+      const remoteMessages = Array.isArray(remote.data?.messages) ? remote.data.messages : [];
+      const localMessages = new Map((state.messages || []).map(item => [String(item.id), item]));
+      const hasMessageDelta = remoteMessages.some(item => {
+        const local = localMessages.get(String(item?.id));
+        return item?.id != null && (!local || Number(item.updatedAt || item.createdAt || 0) > Number(local.updatedAt || local.createdAt || 0));
+      });
+      if (remote.rev === r.lastRev && !hasMessageDelta) return; // 版本相同但 D1 补回了留言时仍需合并
       const before = { messages: new Set(state.messages.map(m => m.id)), gallery: new Set(state.gallery.map(m => m.id)), todos: new Set(state.todos.map(m => m.id)), trainings: new Set(state.trainings.map(m => m.id)), wishes: new Set(state.wishes.map(m => m.id)) };
       const prevIds = before.messages;
       mergeState(state, remote.data);
@@ -2970,6 +2976,13 @@
     refreshPresenceLocation(true);
   });
   window.addEventListener('focus', () => { pollRoom(); refreshPresenceLocation(true); });
+  navigator.serviceWorker?.addEventListener('message', async event => {
+    if (event.data?.type === 'puffer-room-update') await pollRoom();
+    if (event.data?.type === 'puffer-open-messages') {
+      await pollRoom();
+      window.dispatchEvent(new CustomEvent('puffer-life-messages'));
+    }
+  });
   updateMsgBadge();
   updateMsgNotifyBtn();
   window.PufferLife = {

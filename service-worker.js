@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v4-network-first';
+const CACHE_NAME = 'puffer-shell-v5-message-consistency';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
@@ -58,14 +58,18 @@ self.addEventListener('fetch', event => {
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) { data = { body: event.data?.text?.() || '有新的共同生活更新。' }; }
-  event.waitUntil(self.registration.showNotification(data.title || '胖头鱼的共同生活', {
+  const notification = self.registration.showNotification(data.title || '胖头鱼的共同生活', {
     body: data.body || '有新的共同生活更新。',
     icon: '/assets/puffer-192.png',
     badge: '/assets/puffer-192.png',
     tag: data.tag || 'puffer-room-update',
     renotify: true,
-    data: { url: data.url || '/' }
-  }));
+    data: { url: data.url || '/', kind: data.kind || '' }
+  });
+  const refreshClients = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+    clients.forEach(client => client.postMessage({ type: 'puffer-room-update', kind: data.kind || '' }));
+  });
+  event.waitUntil(Promise.all([notification, refreshClients]));
 });
 
 self.addEventListener('notificationclick', event => {
@@ -73,6 +77,10 @@ self.addEventListener('notificationclick', event => {
   const target = event.notification.data?.url || '/';
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
     const existing = clients.find(client => 'focus' in client);
-    return existing ? existing.focus() : self.clients.openWindow(target);
+    if (existing) {
+      existing.postMessage({ type: event.notification.data?.kind === 'messages' ? 'puffer-open-messages' : 'puffer-room-update' });
+      return existing.focus();
+    }
+    return self.clients.openWindow(target);
   }));
 });
