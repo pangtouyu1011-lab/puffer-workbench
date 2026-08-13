@@ -2180,6 +2180,7 @@
               <div class="settings-field"><label for="roomPass">访问口令</label><input class="pixel-input" id="roomPass" type="password" value="${escapeHtml(state.settings.room.pass || '')}" placeholder="房间口令" /></div>
             </div>
             <div class="settings-actions"><button class="pixel-btn primary" id="roomJoin">加入房间</button><button class="pixel-btn" id="roomCreate">创建房间</button><button class="pixel-btn" id="roomSync">立即同步</button><button class="pixel-btn" id="pushEnable">开启后台通知</button><button class="pixel-btn" id="pushTest">发送测试通知</button><button class="pixel-btn danger" id="roomLeave">退出房间</button></div>
+            <div id="pushStatus" class="settings-status push-status">后台通知状态检查中…</div>
             <div id="roomStatus" class="settings-status">尚未加入共享房间</div>
           </section>
           <details class="settings-advanced">
@@ -2247,13 +2248,22 @@
       } catch (error) { toast(error?.message || '测试通知发送失败', 'error'); }
       finally { button.disabled = false; }
     });
+    const refreshPushStatus = async () => {
+      const el = $('#pushStatus'), button = $('#pushEnable'); if (!el) return;
+      const info = await window.PufferPush?.status?.() || {};
+      const ready = info.permission === 'granted' && info.subscribed && info.serverSubscribed;
+      el.textContent = ready ? '后台通知已开启 · 当前设备已登记' : info.permission === 'denied' ? '通知权限被拒绝 · 请在 Safari 网站设置中允许通知' : info.subscribed && !info.serverSubscribed ? '浏览器已有订阅，但服务器未登记 · 请重新开启后台通知' : '后台通知尚未完成 · 请点击开启后台通知';
+      el.classList.toggle('is-success', ready);
+      if (button) button.textContent = ready ? '后台通知已开启' : '开启后台通知';
+    };
     $('#pushEnable')?.addEventListener('click', async () => {
       const button = $('#pushEnable');
       button.disabled = true;
-      try { await window.PufferPush?.enable(); button.textContent = '后台通知已开启'; toast('后台通知已开启 ✓'); }
+      try { await window.PufferPush?.enable(); button.textContent = '后台通知已开启'; toast('后台通知已开启 ✓'); await refreshPushStatus(); }
       catch (error) { toast(error?.message || '后台通知开启失败', 'error'); }
       finally { button.disabled = false; }
     });
+    refreshPushStatus();
     $('#roomLeave').addEventListener('click', leaveRoom);
     $('#wipeAll').addEventListener('click', () => {
       if (confirm('真的要清空所有数据吗？此操作不可恢复！')) {
