@@ -128,12 +128,11 @@ async function scheduledPushes(env, scheduledTime) {
       const data = rooms.get(row.room_id);
       const reminder = await aiScheduledReminder(env, row.room_id, data, row.person, slot, day);
       if (!reminder) continue;
-      const claimed = await env.DB.prepare('INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)').bind(row.room_id, row.person, day, slot, Date.now()).run();
-      if (!claimed.meta?.changes) continue;
       try {
         const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
         const response = await fetch(row.endpoint, payload);
         if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(row.room_id, row.endpoint).run();
+        else if (response.ok || response.status === 201) await env.DB.prepare('INSERT OR IGNORE INTO scheduled_pushes (room_id, person, day, slot, sent_at) VALUES (?, ?, ?, ?, ?)').bind(row.room_id, row.person, day, slot, Date.now()).run();
       } catch (_) {}
     }
   } catch (_) {}
@@ -422,6 +421,48 @@ async function handle(request, env, ctx) {
     if (!['a', 'b'].includes(person) || !endpoint || !p256dh || !auth || endpoint.length > 2048) return json({ error: 'bad_subscription' }, 400, cors);
     await env.DB.prepare('INSERT INTO push_subscriptions (room_id, person, endpoint, p256dh, auth, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_id, endpoint) DO UPDATE SET person = excluded.person, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at').bind(room, person, endpoint, p256dh, auth, Date.now()).run();
     return json({ ok: true }, 200, cors);
+  }
+
+  const pushStatusPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/push\/status$/);
+  if (pushStatusPath && request.method === 'POST') {
+    if (!env.DB) return json({ error: 'push_storage_unavailable' }, 503, cors);
+    const room = decodeURIComponent(pushStatusPath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403, cors);
+    const person = String(body?.person || '');
+    if (!['a', 'b'].includes(person)) return json({ error: 'bad_person' }, 400, cors);
+    const row = await env.DB.prepare('SELECT updated_at FROM push_subscriptions WHERE room_id = ? AND person = ? ORDER BY updated_at DESC LIMIT 1').bind(room, person).first();
+    return json({ ok: true, subscribed: !!row, updatedAt: row?.updated_at || 0 }, 200, cors);
+  }
+
+  const pushTestPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/push\/test$/);
+  if (pushTestPath && request.method === 'POST') {
+    if (!env.DB) return json({ error: 'push_storage_unavailable' }, 503, cors);
+    const vapid = pushVapid(env);
+    if (!vapid) return json({ error: 'push_unavailable' }, 503, cors);
+    const room = decodeURIComponent(pushTestPath[1]);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const meta = await env.BENCH.get('meta:' + room, { type: 'json' });
+    if (!meta) return json({ error: 'not_found' }, 404, cors);
+    if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403, cors);
+    const person = String(body?.person || '');
+    if (!['a', 'b'].includes(person)) return json({ error: 'bad_person' }, 400, cors);
+    const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE room_id = ? AND person = ?').bind(room, person).all();
+    let sent = 0;
+    for (const row of rows.results || []) {
+      const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+      try {
+        const payload = await buildPushPayload({ data: JSON.stringify({ title: '胖头鱼测试通知', body: '后台通知已经成功送达啦～', url: 'https://20051011.xyz/', tag: `puffer-test-${Date.now()}` }), options: { ttl: 300 } }, subscription, vapid);
+        const response = await fetch(subscription.endpoint, payload);
+        if (response.ok || response.status === 201) sent += 1;
+        if (response.status === 404 || response.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(room, row.endpoint).run();
+      } catch (_) {}
+    }
+    return json({ ok: true, sent }, 200, cors);
   }
 
   const v1 = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)$/);
