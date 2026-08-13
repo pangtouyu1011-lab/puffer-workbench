@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puffer-shell-v7-notification-routing';
+const CACHE_NAME = 'puffer-shell-v8-hydration';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {

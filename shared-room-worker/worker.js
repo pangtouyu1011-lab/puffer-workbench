@@ -85,6 +85,7 @@ function scheduledSlot(value = Date.now()) {
   const hour = local.getUTCHours(), minute = local.getUTCMinutes();
   if (hour === 9 && minute === 0) return 'morning';
   if (hour === 12 && minute === 30) return 'noon';
+  if (hour === 15 && minute === 30) return 'hydration';
   if (hour === 20 && minute === 30) return 'evening';
   return '';
 }
@@ -95,6 +96,11 @@ function scheduledReminder(data, person, slot, day) {
   const status = data?.dailyStatus?.[day]?.[person];
   const fortune = data?.fortune?.date === day && data?.fortune?.by?.[person];
   const todos = Array.isArray(data?.todos) ? data.todos.filter(item => !item.deleted && item.date === day) : [];
+  const waterMl = Array.isArray(data?.hydrationLog) ? data.hydrationLog.filter(item => !item.deleted && item.author === person && item.date === day && item.kind !== 'drink').reduce((sum, item) => sum + Math.max(0, Number(item.ml) || 0), 0) : 0;
+  if (slot === 'hydration') {
+    if (waterMl >= 1500) return null;
+    return { title: '胖头鱼提醒你喝水', body: waterMl ? `今天已经喝了 ${waterMl} ml，还差 ${1500 - waterMl} ml 达到目标。` : '下午啦，先喝一杯水，再慢慢继续今天的事。', tag: `puffer-hydration-${day}`, kind: 'hydration', url: 'https://20051011.xyz/?open=hydration' };
+  }
   const todoDone = !todos.length || todos.every(item => item.done);
   if (fortune && status?.mood && messages.length && todoDone) return null;
   if (slot === 'morning') return { title: '胖头鱼的早安', body: '今天也慢慢开始吧，回来看看 TA 的状态。', tag: `puffer-reminder-${day}-morning` };
@@ -104,6 +110,7 @@ function scheduledReminder(data, person, slot, day) {
 
 async function aiScheduledReminder(env, room, data, person, slot, day) {
   const fallback = scheduledReminder(data, person, slot, day);
+  if (slot === 'hydration') return fallback;
   if (!fallback || !env.AI || !env.DB) return fallback;
   const cacheSlot = `reminder-${slot}-${person}`;
   try {
@@ -165,7 +172,7 @@ async function scheduledPushes(env, scheduledTime) {
         if (!reminder) continue;
         for (const row of recipient.subscriptions) {
           try {
-            const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, kind: 'reminder', url: 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
+            const payload = await buildPushPayload({ data: JSON.stringify({ ...reminder, kind: reminder.kind || 'reminder', url: reminder.url || 'https://20051011.xyz/' }), options: { ttl: 86400 } }, { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, vapid);
             const response = await fetch(row.endpoint, payload);
             if (response.status === 404 || response.status === 410) {
               await env.DB.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?').bind(recipient.roomId, row.endpoint).run();

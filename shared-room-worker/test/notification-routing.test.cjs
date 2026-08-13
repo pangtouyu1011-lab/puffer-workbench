@@ -93,6 +93,28 @@ test('notification click cold-starts the exact routed URL', async () => {
   assert.deepEqual(worker.opened, ['https://20051011.xyz/?open=gallery']);
 });
 
+test('hydration reminder cold-starts the hydration recorder', async () => {
+  const worker = loadServiceWorker();
+  await runExtendable(worker.handlers.notificationclick, {
+    notification: { close() {}, data: { url: 'https://20051011.xyz/?open=hydration', kind: 'hydration' } }
+  });
+  assert.deepEqual(worker.opened, ['https://20051011.xyz/?open=hydration']);
+});
+
+test('hydration records merge by id and do not reuse the legacy maximum counter', () => {
+  const app = readFileSync(resolve(projectRoot, 'app.js'), 'utf8');
+  assert.match(app, /hydrationLog: mergeArr\(local\.hydrationLog, remote\.hydrationLog\)/);
+  assert.match(app, /state\.hydrationLog\.push\(\{ id: uid\(\), author:/);
+  assert.match(app, /WATER_GOAL_ML = 1500/);
+});
+
+test('scheduled hydration reminder keeps its routed kind and URL', () => {
+  const source = readFileSync(resolve(__dirname, '..', 'worker.js'), 'utf8');
+  assert.match(source, /hour === 15 && minute === 30\) return 'hydration'/);
+  assert.match(source, /kind: reminder\.kind \|\| 'reminder'/);
+  assert.match(source, /url: reminder\.url \|\| 'https:\/\/20051011\.xyz\/'/);
+});
+
 test('scheduled reminders claim their D1 slot before building a push payload', () => {
   const source = readFileSync(resolve(__dirname, '..', 'worker.js'), 'utf8');
   const start = source.indexOf('async function scheduledPushes(');

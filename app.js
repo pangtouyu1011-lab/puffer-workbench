@@ -365,6 +365,7 @@
     meals: defaultMeals(),
     wishes: [],
     water: {},
+    hydrationLog: [],
     dailyStatus: {},
     interactionHistory: {},
     fortune: null,          // 两人各自的祈福签：{ date, by: { a, b } }
@@ -405,6 +406,8 @@
       if (!state.meals) state.meals = defaultMeals();
       if (!state.wishes) state.wishes = [];
       if (!state.water) state.water = {};
+      if (!Array.isArray(state.hydrationLog)) state.hydrationLog = [];
+      migrateLegacyWater();
       if (!state.dailyStatus || typeof state.dailyStatus !== 'object') state.dailyStatus = {};
       if (!state.interactionHistory || typeof state.interactionHistory !== 'object') state.interactionHistory = {};
       compactRoomState();
@@ -1050,43 +1053,91 @@
     return removed;
   }
 
-  // 💧 喝水记录（两人分开：state.water[date] = { a: 杯数, b: 杯数 }，兼容旧数字格式）
-  const WATER_GOAL = 8;     // 每日目标杯数
-  const WATER_ML = 250;     // 每杯毫升
+  // 💧 饮水记录：新版本按条目保存，避免两台设备同时记录时互相覆盖。
+  const WATER_GOAL_ML = 1500;
+  const DRINK_WARN_ML = 500;
+  const DEFAULT_HYDRATION_ML = 500;
   // 旧数字 → 双人对象（历史共享值归 a）
   function normWater(v) {
     if (v && typeof v === 'object') return { a: Number(v.a) || 0, b: Number(v.b) || 0 };
     return { a: (typeof v === 'number' ? v : 0), b: 0 };
   }
-  function todayWater() { return normWater(state.water[todayKey()]); }
+  function migrateLegacyWater() {
+    if (!Array.isArray(state.hydrationLog)) state.hydrationLog = [];
+    const known = new Set(state.hydrationLog.map(item => item && item.id));
+    Object.entries(state.water && typeof state.water === 'object' ? state.water : {}).forEach(([date, value]) => {
+      const legacy = normWater(value);
+      ['a', 'b'].forEach(person => {
+        const ml = Math.max(0, Math.round(Number(legacy[person]) || 0) * 250);
+        const id = `hydration-legacy-${date}-${person}`;
+        if (!ml || known.has(id)) return;
+        const createdAt = new Date(`${date}T12:00:00`).getTime() || 1;
+        state.hydrationLog.push({ id, author: person, kind: 'water', ml, date, legacy: true, createdAt, updatedAt: createdAt, deleted: false });
+        known.add(id);
+      });
+    });
+  }
+  function hydrationTotals(person = state.settings.me || 'a', date = todayKey()) {
+    return (state.hydrationLog || []).reduce((total, item) => {
+      if (!item || item.deleted || item.author !== person || item.date !== date) return total;
+      const kind = item.kind === 'drink' ? 'drink' : 'water';
+      total[kind] += Math.max(0, Number(item.ml) || 0);
+      return total;
+    }, { water: 0, drink: 0 });
+  }
+  function addHydration(kind, amount) {
+    const type = kind === 'drink' ? 'drink' : 'water';
+    const ml = Math.round(Number(amount));
+    if (!Number.isFinite(ml) || ml < 1 || ml > 3000) {
+      toast('请输入 1–3000 ml 的饮用量', 'error');
+      return false;
+    }
+    const now = Date.now();
+    state.hydrationLog.push({ id: uid(), author: state.settings.me || 'a', kind: type, ml, date: todayKey(), createdAt: now, updatedAt: now, deleted: false });
+    save();
+    const total = hydrationTotals();
+    if (type === 'water' && total.water >= WATER_GOAL_ML && total.water - ml < WATER_GOAL_ML) toast('今天的喝水目标完成啦 💧🎉');
+    else if (type === 'drink' && total.drink > DRINK_WARN_ML && total.drink - ml <= DRINK_WARN_ML) toast('今天饮料有点多啦，接下来喝水吧', 'info');
+    else toast(`已记录 ${ml} ml ${type === 'water' ? '水' : '饮料'}`);
+    return true;
+  }
+  function deleteHydration(id) {
+    const item = (state.hydrationLog || []).find(entry => entry && entry.id === id && !entry.deleted);
+    if (!item) return false;
+    item.deleted = true;
+    item.updatedAt = Date.now();
+    save();
+    return true;
+  }
+  // 兼容旧入口：加一杯改为 500 ml；减一杯改为撤销今天最近一条水记录。
   function addWater(delta) {
-    const k = todayKey();
+    if (Number(delta) > 0) return addHydration('water', DEFAULT_HYDRATION_ML);
     const me = state.settings.me || 'a';
-    const cur = todayWater();
-    const next = Math.max(0, cur[me] + delta);
-    cur[me] = next;
-    state.water[k] = cur;
-    state.waterUpdated = Date.now();
-    save(); renderWater(); scheduleRoomPush();
-    if (delta > 0 && next === WATER_GOAL) toast('你今天喝水达标啦 💧🎉');
+    const latest = (state.hydrationLog || []).filter(item => item && !item.deleted && item.author === me && item.kind === 'water' && item.date === todayKey()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+    if (latest) deleteHydration(latest.id);
+    return !!latest;
+  }
+  function todayWater() {
+    const totals = hydrationTotals();
+    return { a: state.settings.me === 'b' ? 0 : totals.water, b: state.settings.me === 'b' ? totals.water : 0 };
   }
   function renderWater() {
-    const w = todayWater();
+    const w = hydrationTotals();
     const me = state.settings.me || 'a';
     const ta = me === 'a' ? 'b' : 'a';
     const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
-    const c = w[me], tc = w[ta];
+    const c = w.water, tc = hydrationTotals(ta).water;
     const $ = (id) => document.querySelector(id);
     const cnt = $('#waterCount');
     if (cnt) {
       // 只更新首个文本节点（保留后面的 <span class="water-unit">/8杯</span>）
-      if (cnt.firstChild && cnt.firstChild.nodeType === 3) cnt.firstChild.nodeValue = c;
-      else cnt.textContent = c; // 兜底
+      if (cnt.firstChild && cnt.firstChild.nodeType === 3) cnt.firstChild.nodeValue = Math.round(c / 250);
+      else cnt.textContent = Math.round(c / 250); // 兜底
     }
     const taEl = $('#waterTaText');
-    if (taEl) taEl.textContent = `${partners[ta]} ${tc}/8杯`;
+    if (taEl) taEl.textContent = `${partners[ta]} ${tc} ml`;
     const fill = $('#waterFill');
-    if (fill) fill.style.width = Math.min(100, Math.round(c / WATER_GOAL * 100)) + '%';
+    if (fill) fill.style.width = Math.min(100, Math.round(c / WATER_GOAL_ML * 100)) + '%';
   }
   const wm = $('#waterMinus'), wp = $('#waterPlus');
   if (wm) wm.addEventListener('click', () => addWater(-1));
@@ -2157,6 +2208,9 @@
           if (confirm('确认导入？这将覆盖当前所有数据！')) {
             Object.assign(state, data);
             state.settings = Object.assign({ partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 }, me: 'a', city: '杭州', syncCode: '', cloudUrl: '' }, state.settings || {});
+            if (!Array.isArray(state.hydrationLog)) state.hydrationLog = [];
+            if (!state.water || typeof state.water !== 'object') state.water = {};
+            migrateLegacyWater();
             save();
             updateSyncPill();
             onPageEnter($('.nav-item.active').dataset.page);
@@ -2417,7 +2471,7 @@
 
   // Keep sync payloads bounded: remove old tombstones and cap growing collections.
   const ROOM_TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, meals: 300, wishes: 200 };
+  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, meals: 300, wishes: 200, hydrationLog: 1200 };
   // 图片会以压缩后的 data URL 随相册同步，8MB 足够日常使用，同时仍能拦截异常膨胀。
   const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
   function roomItemTime(item) { return Number(item && (item.updatedAt || item.createdAt)) || 0; }
@@ -2454,6 +2508,7 @@
       meals: compactRoomArray(state.meals, ROOM_ARRAY_LIMITS.meals, now),
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
+      hydrationLog: compactRoomArray(state.hydrationLog, ROOM_ARRAY_LIMITS.hydrationLog, now),
       dailyStatus: compactRoomDailyStatus(state.dailyStatus, now),
       interactionHistory: state.interactionHistory,
       fortune: state.fortune,
@@ -2529,6 +2584,7 @@
       gallery: mergeArr(local.gallery, remote.gallery),
       meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
       wishes: mergeArr(local.wishes, remote.wishes),
+      hydrationLog: mergeArr(local.hydrationLog, remote.hydrationLog),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
       // 喝水分人：按日期取两人各自的最大杯数（兼容旧数字格式）
       water: (() => {
@@ -2545,6 +2601,7 @@
       fortune: mergeFortune(local.fortune, remote.fortune),
     });
     if (remote.partners) local.settings.partners = mergePlan(local.settings.partners, remote.partners);
+    migrateLegacyWater();
     compactRoomState();
   }
 
@@ -3103,7 +3160,7 @@
     if (event.data?.type === 'puffer-open-messages' || event.data?.type === 'puffer-open-notification') {
       await pollRoom();
       const kind = event.data?.type === 'puffer-open-messages' ? 'messages' : event.data?.kind;
-      const target = kind === 'messages' ? 'messages' : kind === 'gallery' ? 'gallery' : kind === 'todos' ? 'todo' : '';
+      const target = kind === 'messages' ? 'messages' : kind === 'gallery' ? 'gallery' : kind === 'todos' ? 'todo' : kind === 'hydration' ? 'hydration' : '';
       if (target) window.dispatchEvent(new CustomEvent(`puffer-life-${target}`));
     }
   });
@@ -3120,6 +3177,7 @@
         fortune: state.fortune,
         dailyStatus: state.dailyStatus,
         water: state.water,
+        hydrationLog: state.hydrationLog,
         fitnessPlan: state.fitnessPlan,
         settings: state.settings,
         weather: state._weather || null,
@@ -3144,7 +3202,10 @@
     deleteMessage(id) { const item=state.messages.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     deleteGallery(id) { const item=state.gallery.find(x=>x.id===id&&!x.deleted);if(!item)return false;item.deleted=true;item.updatedAt=Date.now();save();return true; },
     addGalleryUrl(url, caption) { const value=textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接'), safeCaption=textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明');if(!value||safeCaption===null||live(state.gallery).length>=GALLERY_MAX)return false;state.gallery.push({id:uid(),author:state.settings.me||'a',dataUrl:'',url:value,caption:safeCaption,createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
-    addWater(delta) { addWater(Number(delta)||0); return todayWater(); },
+    addWater(delta) { addWater(Number(delta)||0); return hydrationTotals(); },
+    getHydrationToday() { const me=state.settings.me||'a', ta=me==='a'?'b':'a'; return { me:hydrationTotals(me), partner:hydrationTotals(ta), goal:WATER_GOAL_ML, drinkLimit:DRINK_WARN_ML, defaultMl:DEFAULT_HYDRATION_ML, records:(state.hydrationLog||[]).filter(item=>item&&!item.deleted&&item.author===me&&item.date===todayKey()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) }; },
+    addHydration(kind, ml) { return addHydration(kind, ml); },
+    deleteHydration(id) { return deleteHydration(id); },
     setIdentity(me) { return changeIdentity(me); },
     setNotifySystem(on) { state.settings.notifySystem=!!on;save();if(on&&'Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});return state.settings.notifySystem; },
     updateProfile(input) { const p=input||{};state.settings.partners=state.settings.partners||{};if(p.a!=null)state.settings.partners.a=String(p.a).trim();if(p.b!=null)state.settings.partners.b=String(p.b).trim();if(p.city!=null)state.settings.city=String(p.city).trim();state.settings.partners.updatedAt=Date.now();save();if(p.city!=null)fetchWeather(true);return true; },
