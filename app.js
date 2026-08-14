@@ -371,6 +371,7 @@
     hydrationLog: [],
     dailyStatus: {},
     interactionHistory: {},
+    challengeAnswers: [],
     fortune: null,          // 两人各自的祈福签：{ date, by: { a, b } }
     settings: {
       partners: { a: '孙大炮', b: '童大侠', updatedAt: 0 },
@@ -414,6 +415,7 @@
       migrateLegacyWater();
       if (!state.dailyStatus || typeof state.dailyStatus !== 'object') state.dailyStatus = {};
       if (!state.interactionHistory || typeof state.interactionHistory !== 'object') state.interactionHistory = {};
+      if (!Array.isArray(state.challengeAnswers)) state.challengeAnswers = [];
       compactRoomState();
       save({ silent: true });
       // 迁移旧版共享抽签（settings.fortune 单一签）→ 顶层双人结构（旧签归 a）
@@ -464,16 +466,41 @@
   // 仅返回未软删除的条目（共享模式下删除通过 deleted 标记同步，避免被对方覆盖回来）
   function live(arr) { return (arr || []).filter(x => !x.deleted); }
 
-  function updateInteractionHistory() {
+  function todayChallengeQuestion() {
+    return window.PufferChallenge?.getDailyQuestion?.(todayKey()) || null;
+  }
+
+  function todayChallengeAnswers(source = state) {
+    const question = todayChallengeQuestion(), date = todayKey();
+    if (!question) return {};
+    return live(source.challengeAnswers).filter(item => item.date === date && item.questionId === question.id).reduce((out, item) => {
+      if (item.author === 'a' || item.author === 'b') out[item.author] = item;
+      return out;
+    }, {});
+  }
+
+  function isTodayInteractionComplete(source = state) {
     const date = todayKey();
-    const fortune = state.fortune && state.fortune.date === date ? state.fortune.by || {} : {};
-    const todos = live(state.todos).filter(item => item.date === date);
+    const fortune = source.fortune && source.fortune.date === date ? source.fortune.by || {} : {};
+    const todos = live(source.todos).filter(item => item.date === date);
     const todosDone = !todos.length || todos.every(item => item.done);
     const messageOnDate = item => { const d = new Date(item.createdAt); return item.author && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === date; };
-    const complete = person => !!fortune[person] && !!state.dailyStatus?.[date]?.[person]?.mood && live(state.messages).some(item => item.author === person && messageOnDate(item)) && todosDone;
-    if (complete('a') && complete('b') && !state.interactionHistory[date]) state.interactionHistory[date] = { completedAt: Date.now(), a: true, b: true };
+    const answers = todayChallengeAnswers(source);
+    const complete = person => !!fortune[person] && !!source.dailyStatus?.[date]?.[person]?.mood && live(source.messages).some(item => item.author === person && messageOnDate(item)) && todosDone && !!answers[person];
+    return complete('a') && complete('b');
+  }
+
+  function updateInteractionHistory() {
+    let changed = false;
+    const date = todayKey();
+    const complete = isTodayInteractionComplete(state);
+    if (complete && !state.interactionHistory[date]) {
+      state.interactionHistory[date] = { completedAt: Date.now(), a: true, b: true };
+      changed = true;
+    }
     const cutoff = new Date(Date.now() - 370 * 86400000).toISOString().slice(0, 10);
-    Object.keys(state.interactionHistory).forEach(key => { if (key < cutoff) delete state.interactionHistory[key]; });
+    Object.keys(state.interactionHistory).forEach(key => { if (key < cutoff) { delete state.interactionHistory[key]; changed = true; } });
+    return changed;
   }
 
   // ==========================================
@@ -2477,7 +2504,7 @@
 
   // Keep sync payloads bounded: remove old tombstones and cap growing collections.
   const ROOM_TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, travels: 300, meals: 300, wishes: 200, hydrationLog: 1200 };
+  const ROOM_ARRAY_LIMITS = { todos: 500, trainings: 300, messages: 300, gallery: 60, travels: 300, meals: 300, wishes: 200, hydrationLog: 1200, challengeAnswers: 800 };
   // 图片会以压缩后的 data URL 随相册同步，8MB 足够日常使用，同时仍能拦截异常膨胀。
   const MAX_ROOM_PAYLOAD_BYTES = 8 * 1024 * 1024;
   function roomItemTime(item) { return Number(item && (item.updatedAt || item.createdAt)) || 0; }
@@ -2516,6 +2543,7 @@
       wishes: compactRoomArray(state.wishes, ROOM_ARRAY_LIMITS.wishes, now),
       water: compactRoomWater(state.water, now),
       hydrationLog: compactRoomArray(state.hydrationLog, ROOM_ARRAY_LIMITS.hydrationLog, now),
+      challengeAnswers: compactRoomArray(state.challengeAnswers, ROOM_ARRAY_LIMITS.challengeAnswers, now),
       dailyStatus: compactRoomDailyStatus(state.dailyStatus, now),
       interactionHistory: state.interactionHistory,
       fortune: state.fortune,
@@ -2593,6 +2621,7 @@
       meals: (() => { const m = mergeArr(local.meals, remote.meals); dedupeMeals(m); return m; })(),
       wishes: mergeArr(local.wishes, remote.wishes),
       hydrationLog: mergeArr(local.hydrationLog, remote.hydrationLog),
+      challengeAnswers: mergeArr(local.challengeAnswers, remote.challengeAnswers),
       fitnessPlan: mergePlan(local.fitnessPlan, remote.fitnessPlan),
       // 喝水分人：按日期取两人各自的最大杯数（兼容旧数字格式）
       water: (() => {
@@ -2804,6 +2833,8 @@
         }
       }
       try {
+        // 合并到对方刚完成的互动后，先把连续记录写进这次快照。
+        updateInteractionHistory();
         const snapshot = serializeRoom();
         const dataHash = await snapshotHash(snapshot);
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
@@ -2872,7 +2903,10 @@
       const prevIds = before.messages;
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
+      const interactionChanged = updateInteractionHistory();
       save({ silent: true });
+      // 轮询合并后首次满足双方完成时，补发一次记录给另一台设备。
+      if (interactionChanged) scheduleRoomPush();
       checkNewMessages(prevIds);
       renderCurrent();
       toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
@@ -3185,8 +3219,10 @@
         wishes: state.wishes,
         fortune: state.fortune,
         dailyStatus: state.dailyStatus,
+        interactionHistory: state.interactionHistory,
         water: state.water,
         hydrationLog: state.hydrationLog,
+        challengeAnswers: state.challengeAnswers,
         fitnessPlan: state.fitnessPlan,
         settings: state.settings,
         weather: state._weather || null,
@@ -3198,6 +3234,16 @@
     getPresence() { return presenceUi(); },
     refreshPresence() { refreshPresenceLocation(true); return true; },
     setLocationSharing(enabled) { return setLocationSharing(!!enabled); },
+    getTodayChallenge() { const question = todayChallengeQuestion(); return question ? { question, answers: todayChallengeAnswers(state) } : null; },
+    answerTodayChallenge(answer) {
+      const question = todayChallengeQuestion(), me = state.settings.me || 'a', date = todayKey();
+      if (!question || !question.options.some(option => option.id === answer)) return false;
+      if (live(state.challengeAnswers).some(item => item.date === date && item.questionId === question.id && item.author === me)) return false;
+      state.challengeAnswers.push({ id: `${date}:${me}`, date, questionId: question.id, source: question.source || 'builtin', author: me, answer: String(answer), createdAt: Date.now(), updatedAt: Date.now(), deleted: false });
+      save();
+      return true;
+    },
+    isTodayInteractionComplete() { return isTodayInteractionComplete(state); },
     setDailyStatus(person, mood, text) { const safeText = textWithinLimit(text, TEXT_LIMITS.moodNote, '状态说明'); if (safeText === null) return false; const date = todayKey(); state.dailyStatus[date] = state.dailyStatus[date] || {}; state.dailyStatus[date][person] = { mood: String(mood || ''), text: safeText, updatedAt: Date.now() }; save(); return true; },
     addTodo(input) { const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!text) return false; state.todos.push({ id: uid(), author: state.settings.me || 'a', text, date: String(input && input.date || ''), priority: String(input && input.priority || 'none'), done: false, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     updateTodo(id, input) { const todo = state.todos.find(item => item.id === id && !item.deleted); const text = textWithinLimit(input && input.text, TEXT_LIMITS.todo, '待办'); if (!todo || !text) return false; todo.text = text; todo.date = String(input && input.date || ''); todo.priority = String(input && input.priority || 'none'); todo.updatedAt = Date.now(); save(); return true; },
