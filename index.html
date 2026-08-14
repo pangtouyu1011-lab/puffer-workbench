@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script>
     (() => {
-      const pageVersion = '20260814-daily-challenge-1';
+      const pageVersion = '20260814-css-consolidation-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -33,13 +33,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260814-daily-challenge-1" />
+  <link rel="stylesheet" href="styles.css?v=20260814-css-consolidation-1" />
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-  <link rel="stylesheet" href="life.css?v=20260814-daily-challenge-1" />
-  <link rel="stylesheet" href="life-ritual.css?v=20260814-daily-challenge-1" />
-  <link rel="stylesheet" href="life-dashboard.css?v=20260814-daily-challenge-1" />
-  <link rel="stylesheet" href="life-dashboard-music.css?v=20260814-daily-challenge-1" />
-  <link rel="stylesheet" href="life-complete-state.css?v=20260814-daily-challenge-1" />
+  <link rel="stylesheet" href="life.css?v=20260814-css-consolidation-1" />
+  <link rel="stylesheet" href="life-ritual.css?v=20260814-css-consolidation-1" />
+  <link rel="stylesheet" href="life-dashboard.css?v=20260814-css-consolidation-1" />
+  <link rel="stylesheet" href="life-dashboard-music.css?v=20260814-css-consolidation-1" />
+  <link rel="stylesheet" href="life-complete-state.css?v=20260814-css-consolidation-1" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -597,11 +597,11 @@
   <div class="toast" id="toast"></div>
 
   <!-- QRCode 本地加载，避免外部 CDN 故障导致迁移码不可用 -->
-  <script src="assets/qrcodejs-1.0.0.min.js?v=20260814-daily-challenge-1"></script>
-  <script src="challenge-questions.js?v=20260814-daily-challenge-1"></script>
-  <script src="app.js?v=20260814-daily-challenge-1"></script>
-  <script src="push.js?v=20260814-daily-challenge-1"></script>
-  <script src="life.js?v=20260814-daily-challenge-1"></script>
-  <script src="life-complete-state.js?v=20260814-daily-challenge-1"></script>
+  <script src="assets/qrcodejs-1.0.0.min.js?v=20260814-css-consolidation-1"></script>
+  <script src="challenge-questions.js?v=20260814-css-consolidation-1"></script>
+  <script src="app.js?v=20260814-css-consolidation-1"></script>
+  <script src="push.js?v=20260814-css-consolidation-1"></script>
+  <script src="life.js?v=20260814-css-consolidation-1"></script>
+  <script src="life-complete-state.js?v=20260814-css-consolidation-1"></script>
 </body>
 </html>
