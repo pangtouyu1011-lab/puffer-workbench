@@ -667,8 +667,8 @@
       }));
     };
     renderList();
-    $('#galClose').addEventListener('click', closeModal);
-    $('#galAdd').addEventListener('click', () => {
+    $('#galClose')?.addEventListener('click', closeModal);
+    $('#galAdd')?.addEventListener('click', () => {
       const url = $('#galUrl').value.trim();
       const cap = $('#galCap').value.trim();
       const file = $('#galFile').files[0];
@@ -830,7 +830,7 @@
       $$('#wishIconPick .wish-icon-opt').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
     }));
-    $('#wishSubmit').addEventListener('click', submitWish);
+    $('#wishSubmit')?.addEventListener('click', submitWish);
     const cancel = $('[data-act="modal-cancel"]');
     if (cancel) cancel.addEventListener('click', closeModal);
     const ta = $('#wishText');
@@ -1140,8 +1140,8 @@
     $('#modalBody').innerHTML = '';
     $('#modalFoot').innerHTML = '';
   }
-  $('#modalClose').addEventListener('click', closeModal);
-  $('#modalMask').addEventListener('click', (e) => {
+  $('#modalClose')?.addEventListener('click', closeModal);
+  $('#modalMask')?.addEventListener('click', (e) => {
     if (e.target.id === 'modalMask') closeModal();
   });
 
@@ -1450,8 +1450,8 @@
         <button class="pixel-btn primary" id="todoSave">${editing ? '保存' : '添加'}</button>
       `
     });
-    $('#todoCancel').addEventListener('click', closeModal);
-    $('#todoSave').addEventListener('click', () => {
+    $('#todoCancel')?.addEventListener('click', closeModal);
+    $('#todoSave')?.addEventListener('click', () => {
       const text = $('#todoText').value.trim();
       const p = (document.querySelector('input[name="prio"]:checked') || {}).value || 'none';
       const date = $('#todoDate').value.trim();
@@ -1474,15 +1474,15 @@
     });
   }
 
-  $('#addTodoBtn').addEventListener('click', () => openTodoModal());
-  $('#exportCalBtn').addEventListener('click', () => {
+  $('#addTodoBtn')?.addEventListener('click', () => openTodoModal());
+  $('#exportCalBtn')?.addEventListener('click', () => {
     const dated = live(state.todos).filter(t => t.date);
     if (!dated.length) { toast('还没有带日期的待办，先在待办里选个日期', 'error'); return; }
     exportTodosToCalendar(dated, '河豚工作台待办');
   });
 
   // 列表交互
-  $('#todoList').addEventListener('click', (e) => {
+  $('#todoList')?.addEventListener('click', (e) => {
     const item = e.target.closest('.todo-item');
     if (!item) return;
     const id = item.dataset.id;
@@ -1880,8 +1880,8 @@
         <button class="pixel-btn primary" id="trainSave">${editing ? '保存修改' : '保存记录'}</button>
       `
     });
-    $('#trainCancel').addEventListener('click', closeModal);
-    $('#trainSave').addEventListener('click', () => {
+    $('#trainCancel')?.addEventListener('click', closeModal);
+    $('#trainSave')?.addEventListener('click', () => {
       const muscle = $('#trainMuscle').value.trim();
       const date = $('#trainDate').value || today;
       const content = $('#trainContent').value.trim();
@@ -1928,12 +1928,12 @@
         <button class="pixel-btn primary" id="planSave">保存</button>
       `
     });
-    $('#planReset').addEventListener('click', () => {
+    $('#planReset')?.addEventListener('click', () => {
       Object.assign(state.fitnessPlan, defaultPlan);
       save(); closeModal(); renderFitness();
       toast('已恢复默认计划');
     });
-    $('#planSave').addEventListener('click', () => {
+    $('#planSave')?.addEventListener('click', () => {
       $$('input[data-day]').forEach(inp => {
         const i = parseInt(inp.dataset.day, 10);
         const name = inp.value.trim() || '自定义';
@@ -1950,13 +1950,13 @@
     });
   }
 
-  $('#addTrainBtn').addEventListener('click', () => openTrainModal());
-  $('#openPlanBtn').addEventListener('click', openPlanModal);
-  $('#trainPrev').addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), -1); renderFitness(); });
-  $('#trainNext').addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), 1); renderFitness(); });
-  $('#trainToday').addEventListener('click', () => { fitnessSelDate = todayKey(); renderFitness(); });
+  $('#addTrainBtn')?.addEventListener('click', () => openTrainModal());
+  $('#openPlanBtn')?.addEventListener('click', openPlanModal);
+  $('#trainPrev')?.addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), -1); renderFitness(); });
+  $('#trainNext')?.addEventListener('click', () => { fitnessSelDate = shiftDateKey(fitnessSelDate || todayKey(), 1); renderFitness(); });
+  $('#trainToday')?.addEventListener('click', () => { fitnessSelDate = todayKey(); renderFitness(); });
 
-  $('#trainList').addEventListener('click', (e) => {
+  $('#trainList')?.addEventListener('click', (e) => {
     const actBtn = e.target.closest('[data-act]');
     if (!actBtn) return;
     const item = e.target.closest('.train-item');
@@ -2162,7 +2162,7 @@
       `,
       foot: `<button class="pixel-btn ghost" id="syncClose">关闭</button>`
     });
-    $('#syncClose').addEventListener('click', closeModal);
+    $('#syncClose')?.addEventListener('click', closeModal);
     const pA = $('#partnerA'), pB = $('#partnerB'), cI = $('#cityInput');
     if (pA) pA.addEventListener('input', (e) => {
       if (!state.settings.partners) state.settings.partners = { a: '孙大炮', b: '童大侠', updatedAt: 0 };
@@ -2180,21 +2180,21 @@
       state.settings.city = e.target.value.trim() || '杭州';
       save(); fetchWeather(true);
     });
-    $('#syncExport').addEventListener('click', () => { exportJSON(); });
-    $('#syncImport').addEventListener('click', () => { importJSON(); });
-    $('#syncQR').addEventListener('click', generateQR);
-    $('#syncFromQR').addEventListener('click', importFromQR);
+    $('#syncExport')?.addEventListener('click', () => { exportJSON(); });
+    $('#syncImport')?.addEventListener('click', () => { importJSON(); });
+    $('#syncQR')?.addEventListener('click', generateQR);
+    $('#syncFromQR')?.addEventListener('click', importFromQR);
     // Supabase 与其他旧云端入口不在日常界面显示；保留兼容代码，不删除用户历史文件。
     state.settings.room.backend = 'worker';
     state.settings.room.anon = '';
     // Keep edits as a draft while connected. Otherwise polling can silently
     // jump to a half-typed room before the user presses “加入房间”.
-    $('#roomUrl').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); } });
-    $('#roomId').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.id = e.target.value.trim(); save(); } });
-    $('#roomPass').addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.pass = e.target.value.trim(); save(); } });
-    $('#roomJoin').addEventListener('click', () => connectRoomFromForm(false));
-    $('#roomCreate').addEventListener('click', () => connectRoomFromForm(true));
-    $('#roomSync').addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
+    $('#roomUrl')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); } });
+    $('#roomId')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.id = e.target.value.trim(); save(); } });
+    $('#roomPass')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.pass = e.target.value.trim(); save(); } });
+    $('#roomJoin')?.addEventListener('click', () => connectRoomFromForm(false));
+    $('#roomCreate')?.addEventListener('click', () => connectRoomFromForm(true));
+    $('#roomSync')?.addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
     const pushEnableButton = $('#pushEnable');
     if (pushEnableButton && !$('#pushTest')) {
       pushEnableButton.insertAdjacentHTML('afterend', '<button class="pixel-btn" id="pushTest">发送测试通知</button>');
@@ -2237,8 +2237,8 @@
       finally { button.disabled = false; }
     });
     refreshPushStatus();
-    $('#roomLeave').addEventListener('click', leaveRoom);
-    $('#wipeAll').addEventListener('click', () => {
+    $('#roomLeave')?.addEventListener('click', leaveRoom);
+    $('#wipeAll')?.addEventListener('click', () => {
       if (confirm('真的要清空所有数据吗？此操作不可恢复！')) {
         localStorage.removeItem(STORAGE_KEY);
         location.reload();
@@ -2304,11 +2304,11 @@
   }
 
   // 同步 pill 点击
-  $('#syncPill').addEventListener('click', () => {
+  $('#syncPill')?.addEventListener('click', () => {
     if (syncFailed) { pushToRoom(); }   // 失败后点药丸直接重试，不必进设置
     else openSyncModal();
   });
-  $('#settingsBtn').addEventListener('click', openSyncModal);
+  $('#settingsBtn')?.addEventListener('click', openSyncModal);
 
   // 处理 URL hash 中的同步数据
   function handleHashSync() {
