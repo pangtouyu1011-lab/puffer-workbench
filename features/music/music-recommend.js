@@ -96,11 +96,40 @@
     settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); ctx.save({ silent: true }); return song;
   }
 
+  function ensurePastMusicRecords(date, currentSlot) {
+    const order = ['morning', 'afternoon', 'night'];
+    const currentIndex = order.indexOf(currentSlot);
+    if (currentIndex < 0) return;
+    const existing = new Set(MusicState.getDayMusicHistory(date).map(item => item.slot));
+    order.slice(0, currentIndex).forEach(slot => {
+      if (existing.has(slot)) return;
+      const part = slot === 'afternoon' ? 'noon' : slot;
+      const song = getMusicSlotSong(part);
+      if (!song) return;
+      const reasonModule = window.PufferMusicReason;
+      const reason = reasonModule && reasonModule.generate
+        ? reasonModule.generate(song, { part: slot, weather: musicWeatherProfile() })
+        : { weather: {}, scene: {}, preference: {}, mood: {}, summary: '' };
+      MusicState.saveHistoryRecord({
+        date,
+        slot,
+        songKey: musicSongKey(song),
+        song,
+        reason,
+        generatedAt: Date.now(),
+        source: 'retroactive'
+      });
+    });
+  }
+
   function getCurrentMusic() {
     const date = ctx.todayKey(); const slot = currentMusicSlot(); const cached = MusicState.getCurrentMusic();
     if (cached && cached.date === date && cached.slot === slot) {
       const cachedSong = cached.song || MUSIC_LIBRARY.find(item => musicSongKey(item) === cached.songKey);
-      if (cachedSong) return { ...cached, song: cachedSong, cached: true };
+      if (cachedSong) {
+        ensurePastMusicRecords(date, slot);
+        return { ...cached, song: cachedSong, cached: true };
+      }
     }
     const pickPart = slot === 'afternoon' ? 'noon' : slot;
     const song = getMusicSlotSong(pickPart);
@@ -111,6 +140,7 @@
       : { weather: {}, scene: {}, preference: {}, mood: {}, summary: '' };
     const record = { date, slot, songKey: musicSongKey(song), song, reason, generatedAt: Date.now() };
     MusicState.saveCurrentMusic(record);
+    ensurePastMusicRecords(date, slot);
     return { ...record, cached: false };
   }
 
