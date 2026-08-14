@@ -48,11 +48,12 @@
     return getSettings()._musicCurrentMusic || null;
   }
 
-  function saveHistoryRecord(record) {
+  function saveMusicTrack(record, options = {}) {
     if (!record || !record.date || !record.slot || !record.songKey) return false;
     const settings = getSettings();
     const persisted = { ...record };
     delete persisted.song;
+    if (options.current) settings._musicCurrentMusic = persisted;
     settings._musicDayHistory = Array.isArray(settings._musicDayHistory)
       ? settings._musicDayHistory
       : [];
@@ -66,12 +67,11 @@
   }
 
   function saveCurrentMusic(record) {
-    if (!record || !record.date || !record.slot || !record.songKey) return false;
-    const settings = getSettings();
-    const persisted = { ...record };
-    delete persisted.song;
-    settings._musicCurrentMusic = persisted;
-    return saveHistoryRecord(record);
+    return saveMusicTrack(record, { current: true });
+  }
+
+  function saveHistoryRecord(record) {
+    return saveMusicTrack(record);
   }
 
   function getDayMusicHistory(date) {
@@ -125,6 +125,7 @@
     getBlocked,
     getSlotSongKeys,
     getCurrentMusic,
+    saveMusicTrack,
     saveHistoryRecord,
     saveCurrentMusic,
     getDayMusicHistory,
