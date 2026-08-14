@@ -12,6 +12,3 @@
 
 /* The shared "Us" page remains here until its dedicated visual pass. */
 .life-us-hero,.life-us-stats div{border-color:rgba(255,255,255,.88)!important;box-shadow:0 10px 26px rgba(74,68,86,.075),0 2px 5px rgba(74,68,86,.035)!important}.life-us-hero{overflow:hidden;border-radius:24px!important;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(255,255,255,.76))!important;backdrop-filter:blur(18px)}.life-us-hero::before{content:'';position:absolute;width:120px;height:120px;border-radius:50%;background:rgba(255,225,214,.45);left:50%;top:-68px;transform:translateX(-50%)}.life-us-person b{box-shadow:0 9px 16px rgba(186,101,76,.12)}.life-us-stats div{border-radius:19px!important;background:rgba(255,255,255,.84)!important}.life-us-stats div:first-child{background:linear-gradient(145deg,#fff8f4,#fff)!important}
-
-/* C batch: Bottom Sheet surface and its inner cards. */
-.life-sheet{background:rgba(249,250,253,.93)!important;box-shadow:0 -18px 54px rgba(27,31,42,.2)!important}.life-sheet-body{padding-bottom:18px!important}.life-sheet-body h2{letter-spacing:-.9px}.life-horo,.life-fortune-person,.life-media-grid article{border:1px solid rgba(255,255,255,.9);box-shadow:0 7px 18px rgba(83,81,98,.06)}.life-sheet-primary{box-shadow:0 9px 17px rgba(200,106,78,.22)}
