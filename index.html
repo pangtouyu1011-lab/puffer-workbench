@@ -166,26 +166,6 @@
 }
 
 /* 🎡 吃饭转盘 */
-.meal-card { display:flex; flex-direction:column; align-items:center; gap:16px; padding:22px; }
-.meal-wheel-wrap { position:relative; width:300px; height:300px; max-width:84vw; }
-.meal-wheel-wrap canvas { width:100%; height:100%; display:block; border:6px solid #fff; border-radius:50%; box-shadow:0 10px 34px -10px rgba(59,50,40,.3); background:#fff; }
-.meal-pointer {
-  position:absolute; top:-5px; left:50%; transform:translateX(-50%); z-index:3;
-  width:0; height:0; border-left:15px solid transparent; border-right:15px solid transparent;
-  border-top:30px solid var(--primary);
-  filter:drop-shadow(0 3px 4px rgba(59,50,40,.25));
-}
-.meal-result { font-family:var(--font-body); font-size:17px; color:var(--ink); text-align:center; min-height:26px; font-weight:600; }
-.meal-result b { color:var(--primary-deep); }
-.meal-spin { font-size:15px; padding:13px 30px; }
-.meal-add { display:flex; gap:8px; margin-bottom:12px; }
-.meal-add .pixel-input { flex:1; min-width:0; }
-.meal-list { list-style:none; display:flex; flex-direction:column; gap:8px; }
-.meal-list li { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; background:var(--cream); border:1px solid var(--line); border-radius:10px; }
-.meal-name { font-size:14px; }
-.meal-del { border:none; background:transparent; cursor:pointer; color:var(--muted); font-size:14px; opacity:.7; border-radius:6px; padding:2px 6px; }
-.meal-del:hover { opacity:1; color:var(--pink-deep); background:#FDE8EE; }
-.meal-empty { text-align:center; color:var(--muted); padding:8px; }
 
 /* 📅 共同日历 */
 .cal-card { padding:16px; }
