@@ -3140,5 +3140,8 @@
     async addTravel(input, file) { const value=input||{}, place=textWithinLimit(value.place, TEXT_LIMITS.travelPlace, '地点'), note=textWithinLimit(value.note, TEXT_LIMITS.travelNote, '旅行记录'); if(!place||note===null)return false; let stored={dataUrl:'',url:''}; if(file){const dataUrl=await compressRoomImage(file);stored=await storeRoomImage(dataUrl);if(!stored)return false;} const lat=Number(value.lat),lng=Number(value.lng),status=value.status==='wish'?'wish':'visited'; state.travels.push({id:uid(),author:state.settings.me||'a',place,date:String(value.date||todayKey()),note,status,lat:Number.isFinite(lat)?Math.max(-90,Math.min(90,lat)):null,lng:Number.isFinite(lng)?Math.max(-180,Math.min(180,lng)):null,dataUrl:stored.dataUrl||'',url:stored.url||'',createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }
   };
-  goPage('dashboard');
+  // The Life UI owns the initial render when the page is in life-boot mode.
+  // Keep the legacy dashboard available for compatibility, but do not try to
+  // render it into elements that the Life shell intentionally omits.
+  if (!document.documentElement.classList.contains('life-boot')) goPage('dashboard');
 })();
