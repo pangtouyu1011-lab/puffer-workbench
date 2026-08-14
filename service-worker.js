@@ -1,4 +1,6 @@
-const CACHE_NAME = 'puffer-shell-v11-declarative-push';
+// Runtime cache generation. Bump this whenever the production shell changes so
+// installed PWAs cannot keep the previous shell generation after activation.
+const CACHE_NAME = 'puffer-shell-v12-legacy-cleanup';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
