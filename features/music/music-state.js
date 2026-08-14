@@ -52,6 +52,10 @@
     if (!record || !record.date || !record.slot || !record.songKey) return false;
     const settings = getSettings();
     const persisted = { ...record };
+    // Keep a small display snapshot alongside the stable song key so the
+    // local trail can render even when the library is loaded later.
+    if (!persisted.title && record.song?.title) persisted.title = record.song.title;
+    if (!persisted.artist && record.song?.artist) persisted.artist = record.song.artist;
     delete persisted.song;
     if (options.current) settings._musicCurrentMusic = persisted;
     settings._musicDayHistory = Array.isArray(settings._musicDayHistory)

@@ -1,5 +1,4 @@
-// Music presentation layer. Personal recommendations stay local and are
-// rendered as a calm daily trail rather than a task list.
+// Music presentation layer. Personal recommendations stay local.
 (function () {
   'use strict';
 
@@ -10,9 +9,7 @@
   ];
 
   function esc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[char]));
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   }
 
   function lineIcon(slot) {
@@ -25,36 +22,25 @@
   }
 
   function current() {
-    try { return window.PufferMusicRecommend?.getCurrentMusic?.() || null; } catch (error) {
-      console.warn('[MusicView] current recommendation unavailable', error);
-      return null;
-    }
+    try { return window.PufferMusicRecommend?.getCurrentMusic?.() || null; }
+    catch (error) { console.warn('[MusicView] current recommendation unavailable', error); return null; }
   }
 
-  function songTitle(record) { return record?.song?.title || record?.title || '今天的歌'; }
-  function songArtist(record) { return record?.song?.artist || record?.artist || '正在准备'; }
+  function resolveSong(record) {
+    if (record?.song) return record.song;
+    const library = window.PufferMusicData?.MUSIC_LIBRARY || [];
+    return library.find(song => window.PufferMusicRecommend?.musicSongKey?.(song) === record?.songKey) || null;
+  }
+
+  function songTitle(record) { return resolveSong(record)?.title || record?.title || '今天的歌'; }
+  function songArtist(record) { return resolveSong(record)?.artist || record?.artist || '正在准备'; }
   function slotLabel(id) { return SLOTS.find(slot => slot.id === id)?.label || id || '时段'; }
   function reasonSummary(record) { return record?.reason?.summary || '给今天留一段合适的陪伴。'; }
   function getHistory(date) { return window.PufferMusicState?.getDayMusicHistory?.(date) || []; }
 
   function renderHomeMarkup() {
     const record = current();
-    return `<section class="life-section life-home-music">
-      <div class="life-section-head">
-        <h2 class="life-section-title">今日音乐</h2>
-        <button type="button" class="life-pill" data-life-open="music">查看详情</button>
-      </div>
-      <button type="button" class="life-music-now" data-life-open="music" aria-label="查看此刻推荐的音乐">
-        <span class="life-music-now-icon" aria-hidden="true">${lineIcon(record?.slot)}</span>
-        <span class="life-music-now-copy">
-          <small>此刻推荐</small>
-          <b>${esc(songTitle(record))}</b>
-          <span>${esc(songArtist(record))}</span>
-          <em>${esc(reasonSummary(record))}</em>
-        </span>
-        <span class="life-music-now-arrow" aria-hidden="true">›</span>
-      </button>
-    </section>`;
+    return `<section class="life-section life-home-music"><div class="life-section-head"><h2 class="life-section-title">今日音乐</h2><button type="button" class="life-pill" data-life-open="music">查看详情</button></div><button type="button" class="life-music-now" data-life-open="music" aria-label="查看此刻推荐的音乐"><span class="life-music-now-icon" aria-hidden="true">${lineIcon(record?.slot)}</span><span class="life-music-now-copy"><small>此刻推荐</small><b>${esc(songTitle(record))}</b><span>${esc(songArtist(record))}</span><em>${esc(reasonSummary(record))}</em></span><span class="life-music-now-arrow" aria-hidden="true">›</span></button></section>`;
   }
 
   function historyMarkup(record) {
@@ -68,43 +54,22 @@
       const isPast = index < currentIndex;
       if (item) {
         const note = item.source === 'retroactive' ? '今天早些时候错过了，补上一首给你。' : '这一段时间，留给自己的陪伴。';
-        return `<li class="life-music-history-item is-generated ${item.source === 'retroactive' ? 'is-retroactive' : ''}">
-          <span class="life-music-history-mark">${lineIcon(slot.id)}</span>
-          <div><small>${slot.label}</small><b>${esc(songTitle(item))}</b><em>${esc(songArtist(item))}</em><p>${esc(note)}</p></div>
-        </li>`;
+        return `<li class="life-music-history-item is-generated ${item.source === 'retroactive' ? 'is-retroactive' : ''}"><span class="life-music-history-mark">${lineIcon(slot.id)}</span><div><small>${slot.label}</small><b>${esc(songTitle(item))}</b><em>${esc(songArtist(item))}</em><p>${esc(note)}</p></div></li>`;
       }
-      if (isPast) {
-        return `<li class="life-music-history-item is-empty">
-          <span class="life-music-history-mark">${lineIcon(slot.id)}</span>
-          <div><small>${slot.label}</small><b>今天早些时候的歌</b><em>打开时会为你补上一首</em></div>
-        </li>`;
-      }
-      return `<li class="life-music-history-item is-locked">
-        <span class="life-music-history-mark">${lineIcon(slot.id)}</span>
-        <div><small>${slot.label}</small><b>夜晚到来时，再为你准备一首</b><em>${slot.unlock} 后再来看看</em></div>
-      </li>`;
+      if (isPast) return `<li class="life-music-history-item is-empty"><span class="life-music-history-mark">${lineIcon(slot.id)}</span><div><small>${slot.label}</small><b>今天早些时候的歌</b><em>打开时会为你补上一首</em></div></li>`;
+      return `<li class="life-music-history-item is-locked"><span class="life-music-history-mark">${lineIcon(slot.id)}</span><div><small>${slot.label}</small><b>晚上到来时，再为你准备一首</b><em>${slot.unlock} 后再来看看</em></div></li>`;
     }).join('');
   }
 
   function reasonMarkup(reason) {
-    const parts = [reason?.weather, reason?.scene, reason?.preference, reason?.mood]
-      .filter(item => item?.text).slice(0, 2);
+    const parts = [reason?.weather, reason?.scene, reason?.preference, reason?.mood].filter(item => item?.text).slice(0, 2);
     return parts.length ? `<div class="life-music-reasons">${parts.map(item => `<span>${esc(item.text)}</span>`).join('')}</div>` : '';
   }
 
   function renderDetailMarkup() {
     const record = current();
     if (!record) return '<section class="life-music-detail"><h2>今日音乐</h2><p class="life-data-empty">今天的陪伴还在准备中。</p></section>';
-    return `<section class="life-music-detail">
-      <div class="life-music-detail-eyebrow">此刻推荐 · ${esc(slotLabel(record.slot))}</div>
-      <div class="life-music-detail-hero">
-        <span class="life-music-detail-note" aria-hidden="true">${lineIcon(record.slot)}</span>
-        <div><h2>${esc(songTitle(record))}</h2><p>${esc(songArtist(record))}</p></div>
-      </div>
-      <div class="life-music-detail-reason"><small>为什么推荐</small><b>${esc(reasonSummary(record))}</b>${reasonMarkup(record.reason)}</div>
-      <div class="life-music-history-head"><h3>今天的音乐轨迹</h3><span>只记录在本机</span></div>
-      <ul class="life-music-history">${historyMarkup(record)}</ul>
-    </section>`;
+    return `<section class="life-music-detail"><div class="life-music-detail-eyebrow">此刻推荐 · ${esc(slotLabel(record.slot))}</div><div class="life-music-detail-hero"><span class="life-music-detail-note" aria-hidden="true">${lineIcon(record.slot)}</span><div><h2>${esc(songTitle(record))}</h2><p>${esc(songArtist(record))}</p></div></div><div class="life-music-detail-reason"><small>为什么推荐</small><b>${esc(reasonSummary(record))}</b>${reasonMarkup(record.reason)}</div><div class="life-music-history-head"><h3>今天的音乐轨迹</h3><span>只记录在本机</span></div><ul class="life-music-history">${historyMarkup(record)}</ul></section>`;
   }
 
   window.PufferMusicView = { current, renderHomeMarkup, renderDetailMarkup };

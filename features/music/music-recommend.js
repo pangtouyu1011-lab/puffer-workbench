@@ -138,7 +138,7 @@
     const reason = reasonModule && reasonModule.generate
       ? reasonModule.generate(song, { part: slot, weather: musicWeatherProfile() })
       : { weather: {}, scene: {}, preference: {}, mood: {}, summary: '' };
-    const record = { date, slot, songKey: musicSongKey(song), song, reason, generatedAt: Date.now() };
+    const record = { date, slot, songKey: musicSongKey(song), song, reason, generatedAt: Date.now(), source: 'current' };
     MusicState.saveMusicTrack(record, { current: true });
     ensurePastMusicRecords(date, slot);
     return { ...record, cached: false };
