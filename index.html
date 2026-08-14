@@ -34,6 +34,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=20260814-music-track-display-fix-1" />
+  <link rel="stylesheet" href="legacy-dashboard.css?v=20260814-music-track-display-fix-1" />
+  <link rel="stylesheet" href="legacy-training.css?v=20260814-music-track-display-fix-1" />
+  <link rel="stylesheet" href="legacy-navigation.css?v=20260814-music-track-display-fix-1" />
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
   <link rel="stylesheet" href="life.css?v=20260814-music-track-display-fix-1" />
   <link rel="stylesheet" href="life-ritual.css?v=20260814-music-track-display-fix-1" />
@@ -41,10 +44,10 @@
   <link rel="stylesheet" href="life-dashboard-music.css?v=20260814-music-track-display-fix-1" />
   <link rel="stylesheet" href="life-complete-state.css?v=20260814-music-track-display-fix-1" />
   <style>
-/* ===== 仪表板排版优�?===== */
+/* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
 
-/* 天气 / 纪念�?*/
+/* 天气 / 纪念日 */
 .weather-card .weather-body { text-align:center; padding:16px 0 10px; }
 .weather-main { display:flex; align-items:center; justify-content:center; gap:14px; }
 .weather-icon { font-size:44px; line-height:1; }
@@ -61,7 +64,7 @@
 /* 📸 照片 Hero（首页置顶） */
 .gallery-hero { padding:0; overflow:hidden; border-radius:20px; }
 .gallery-stage { position:relative; height:330px; background:var(--cream); overflow:hidden; }
-/* 空相册：压缩高度，避免空状态霸占首�?*/
+/* 空相册：压缩高度，避免空状态霸占首屏 */
 .gallery-hero.is-empty .gallery-stage { height:240px; }
 .gallery-slider { position:absolute; inset:0; }
 .gallery-slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity .6s ease; }
@@ -112,7 +115,7 @@
 .gal-manage-item { border:1px solid var(--line); padding:6px; background:var(--cream); border-radius:10px; }
 .gal-manage-item img { width:100%; height:100px; object-fit:cover; border-radius:8px; display:block; }
 .gm-meta { display:flex; flex-direction:column; gap:6px; margin-top:6px; font-size:12px; }
-/* ===== 仪表板美�?===== */
+/* ===== 仪表板美化 ===== */
 .dash-welcome {
   display:flex; align-items:center; justify-content:space-between; gap:16px;
   padding:20px 24px; margin:4px 0 18px;
@@ -239,7 +242,7 @@
   </div>
 
 
-  <div class="app">
+  <div class="app" id="legacy-ui" hidden>
     <!-- 顶部导航 -->
     <header class="app-header pixel-border">
       <div class="header-left">
@@ -252,7 +255,7 @@
         </div>
       </div>
       <div class="header-right">
-        <div class="sync-pill" id="syncPill" title="点击查看同步状�?>
+        <div class="sync-pill" id="syncPill" title="点击查看同步状态">
           <span class="sync-dot" id="syncDot"></span>
           <span class="sync-text" id="syncText">本地</span>
         </div>
@@ -262,12 +265,12 @@
       </div>
     </header>
 
-    <!-- 移动端底�?Tab / 桌面端侧边栏 -->
+    <!-- 移动端底部 Tab / 桌面端侧边栏 -->
     <aside class="sidebar pixel-border">
       <nav class="nav">
         <button class="nav-item active" data-page="dashboard">
           <span class="nav-icon">🏠</span>
-          <span class="nav-label">仪表�?/span>
+          <span class="nav-label">仪表板</span>
         </button>
         <button class="nav-item" data-page="todo">
           <span class="nav-icon">📆</span>
@@ -278,16 +281,16 @@
           <span class="nav-label">健身</span>
         </button>
         <button class="nav-item" data-page="horoscope">
-          <span class="nav-icon">�?/span>
+          <span class="nav-icon">✨</span>
           <span class="nav-label">星座</span>
         </button>
         <button class="nav-item" data-page="messages">
           <span class="nav-icon">💬</span>
-          <span class="nav-label">留言�?/span>
+          <span class="nav-label">留言板</span>
         </button>
         <button class="nav-item" data-page="wishes">
-          <span class="nav-icon">🛎�?/span>
-          <span class="nav-label">心愿�?/span>
+          <span class="nav-icon">🛎️</span>
+          <span class="nav-label">心愿墙</span>
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -298,21 +301,21 @@
       </div>
     </aside>
 
-    <!-- 主内�?-->
+    <!-- 主内容 -->
     <main class="content">
-      <!-- 仪表�?-->
+      <!-- 仪表板 -->
       <section class="page active" id="page-dashboard">
-        <!-- 📸 精选照�?Hero：置于首页最顶部 -->
+        <!-- 📸 精选照片 Hero：置于首页最顶部 -->
         <div class="card pixel-border gallery-hero" id="galleryHero">
           <div class="gallery-stage">
-            <div class="gallery-slider" id="gallerySlider"><div class="gallery-empty">还没有共同回�?br><span class="ge-sub">添加第一张照片，给今天留个记�?/span></div></div>
-            <button class="gallery-nav prev" id="galleryPrev" aria-label="上一�? hidden>�?/button>
-            <button class="gallery-nav next" id="galleryNext" aria-label="下一�? hidden>�?/button>
+            <div class="gallery-slider" id="gallerySlider"><div class="gallery-empty">还没有共同回忆<br><span class="ge-sub">添加第一张照片，给今天留个记号</span></div></div>
+            <button class="gallery-nav prev" id="galleryPrev" aria-label="上一张" hidden>‹</button>
+            <button class="gallery-nav next" id="galleryNext" aria-label="下一张" hidden>›</button>
             <div class="gallery-dots" id="galleryDots"></div>
           </div>
           <div class="gallery-hero-bar">
-            <span class="gallery-hero-title">📸 孙大�?&amp; 童大�?的精选回�?/span>
-            <button class="link-btn" id="galleryManageBtn">管理 �?/button>
+            <span class="gallery-hero-title">📸 孙大炮 &amp; 童大侠 的精选回忆</span>
+            <button class="link-btn" id="galleryManageBtn">管理 →</button>
           </div>
         </div>
 
@@ -320,7 +323,7 @@
         <div class="dash-welcome pixel-border">
           <div class="dw-left">
             <div class="dw-greeting" id="dwGreeting">嗨，你好 👋</div>
-            <h2 class="dw-title" id="dwTitle">孙大�?&amp; 童大�?/h2>
+            <h2 class="dw-title" id="dwTitle">孙大炮 &amp; 童大侠</h2>
             <p class="dw-date" id="todayDateText">--</p>
           </div>
           <div class="dw-mascot">
@@ -331,10 +334,10 @@
 
         <div class="stat-grid">
           <div class="stat-card pixel-border stat-orange">
-            <span class="stat-icon">�?/span>
+            <span class="stat-icon">✅</span>
             <div class="stat-label">待办事项</div>
             <div class="stat-value" id="statTodo">0</div>
-            <div class="stat-sub" id="statTodoSub">待完�?/div>
+            <div class="stat-sub" id="statTodoSub">待完成</div>
           </div>
           <div class="stat-card pixel-border stat-cream">
             <span class="stat-icon">💪</span>
@@ -349,17 +352,17 @@
             <span class="stat-icon">🔥</span>
             <div class="stat-label">本周训练</div>
             <div class="stat-value" id="statWeek">0</div>
-            <div class="stat-sub">个动�?/div>
+            <div class="stat-sub">个动作</div>
           </div>
-          <div class="stat-card pixel-border water-mini" id="waterCard" title="各自的喝水量，各记各�?>
+          <div class="stat-card pixel-border water-mini" id="waterCard" title="各自的喝水量，各记各的">
             <span class="stat-icon">💧</span>
             <div class="stat-label">喝水打卡</div>
-            <div class="stat-value" id="waterCount">0<span class="water-unit">/8�?/span></div>
+            <div class="stat-value" id="waterCount">0<span class="water-unit">/8杯</span></div>
             <div class="water-mini-bar"><div class="water-fill" id="waterFill"></div></div>
             <div class="water-mini-ta" id="waterTaText">TA 0/8</div>
             <div class="water-mini-actions">
-              <button class="pixel-btn tiny" id="waterMinus" aria-label="自己减少一�?>�?/button>
-              <button class="pixel-btn primary tiny" id="waterPlus" aria-label="自己增加一�?>+</button>
+              <button class="pixel-btn tiny" id="waterMinus" aria-label="自己减少一杯">−</button>
+              <button class="pixel-btn primary tiny" id="waterPlus" aria-label="自己增加一杯">+</button>
             </div>
           </div>
         </div>
@@ -368,14 +371,14 @@
         <div class="dash-top">
           <div class="card pixel-border weather-card" id="weatherCard">
             <div class="card-head">
-              <h3>🌤�?今日天气</h3>
+              <h3>🌤️ 今日天气</h3>
               <span class="muted" id="weatherCity">杭州</span>
             </div>
-            <div class="weather-body" id="weatherBody">加载�?..</div>
+            <div class="weather-body" id="weatherBody">加载中...</div>
           </div>
           <div class="card pixel-border anni-card" id="anniversaryCard">
-            <div class="card-head"><h3>💞 纪念�?/h3></div>
-            <div class="anni-body" id="anniBody">加载�?..</div>
+            <div class="card-head"><h3>💞 纪念日</h3></div>
+            <div class="anni-body" id="anniBody">加载中...</div>
           </div>
         </div>
 
@@ -384,50 +387,50 @@
           <div class="card pixel-border">
             <div class="card-head">
               <h3>🔥 待办事项</h3>
-              <button class="link-btn" data-goto="todo">查看全部 �?/button>
+              <button class="link-btn" data-goto="todo">查看全部 →</button>
             </div>
             <ul class="mini-list" id="dashTodoList">
-              <li class="empty">还没有待办，去添加一个吧�?/li>
+              <li class="empty">还没有待办，去添加一个吧～</li>
             </ul>
           </div>
           <div class="card pixel-border">
             <div class="card-head">
-              <h3>🏋�?今日训练</h3>
-              <button class="link-btn" data-goto="fitness">去记�?�?/button>
+              <h3>🏋️ 今日训练</h3>
+              <button class="link-btn" data-goto="fitness">去记录 →</button>
             </div>
             <div class="today-train" id="dashTrain">
-              <p class="muted">加载�?..</p>
+              <p class="muted">加载中...</p>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 待办日历（待�?+ 月历合并�?-->
+      <!-- 待办日历（待办 + 月历合并） -->
       <section class="page" id="page-todo">
         <div class="page-head">
           <div>
             <h2 class="page-title">待办日历</h2>
-            <p class="page-sub">点日历选日子，下方就是那天的待�?/p>
+            <p class="page-sub">点日历选日子，下方就是那天的待办</p>
           </div>
           <div class="page-actions">
             <div class="seg">
               <button class="seg-btn active" data-filter="all">全部</button>
-              <button class="seg-btn" data-filter="active">未完�?/button>
-              <button class="seg-btn" data-filter="done">已完�?/button>
+              <button class="seg-btn" data-filter="active">未完成</button>
+              <button class="seg-btn" data-filter="done">已完成</button>
             </div>
-            <button type="button" class="pixel-btn primary" id="addTodoBtn">�?新建待办</button>
-            <button type="button" class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办�?iOS 日历">📅 导出</button>
+            <button type="button" class="pixel-btn primary" id="addTodoBtn">＋ 新建待办</button>
+            <button type="button" class="pixel-btn cal-export" id="exportCalBtn" title="导出带日期的待办到 iOS 日历">📅 导出</button>
           </div>
         </div>
-        <!-- 月历（点击日�?�?下方列表只显示该日待办） -->
+        <!-- 月历（点击日期 → 下方列表只显示该日待办） -->
         <div class="card pixel-border cal-card">
           <div class="cal-top">
-            <button class="pixel-btn ghost" id="calPrev">�?上月</button>
+            <button class="pixel-btn ghost" id="calPrev">‹ 上月</button>
             <div class="cal-title" id="calTitle">--</div>
-            <button class="pixel-btn ghost" id="calNext">下月 �?/button>
+            <button class="pixel-btn ghost" id="calNext">下月 ›</button>
           </div>
           <div class="cal-weekdays">
-            <span>�?/span><span>一</span><span>�?/span><span>�?/span><span>�?/span><span>�?/span><span>�?/span>
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
           </div>
           <div class="cal-grid" id="calGrid"></div>
           <div class="cal-bottom">
@@ -445,8 +448,8 @@
       <section class="page" id="page-horoscope">
         <div class="page-head">
           <div>
-            <h2 class="page-title">�?每日星座</h2>
-            <p class="page-sub">双子�?× 天秤�?· 今天的运势与一点小幸运</p>
+            <h2 class="page-title">✨ 每日星座</h2>
+            <p class="page-sub">双子座 × 天秤座 · 今天的运势与一点小幸运</p>
           </div>
         </div>
         <div class="horo-grid" id="horoGrid"></div>
@@ -465,7 +468,7 @@
           </div>
           <div class="page-actions">
             <button type="button" class="pixel-btn ghost" id="openPlanBtn">📅 训练计划</button>
-            <button type="button" class="pixel-btn primary" id="addTrainBtn">�?记录训练</button>
+            <button type="button" class="pixel-btn primary" id="addTrainBtn">＋ 记录训练</button>
           </div>
         </div>
 
@@ -479,7 +482,7 @@
             <span class="badge" id="todayPlanBadge">--</span>
           </div>
           <div id="todayPlanBody" class="today-plan-body">
-            <p class="muted">加载�?..</p>
+            <p class="muted">加载中...</p>
           </div>
         </div>
 
@@ -487,9 +490,9 @@
           <div class="card-head">
             <h3>训练日记</h3>
             <div class="day-nav">
-              <button class="pill" id="trainPrev" title="前一�?>�?/button>
+              <button class="pill" id="trainPrev" title="前一天">‹</button>
               <button class="pill day-now" id="trainToday">今天</button>
-              <button class="pill" id="trainNext" title="后一�?>�?/button>
+              <button class="pill" id="trainNext" title="后一天">›</button>
             </div>
           </div>
           <div class="day-label" id="trainSelDate">--</div>
@@ -499,18 +502,18 @@
       </section>
 
 
-      <!-- 留言�?-->
+      <!-- 留言板 -->
       <section class="page" id="page-messages">
         <div class="page-head">
           <div>
-            <h2 class="page-title">💬 留言�?/h2>
-            <p class="page-sub">两个人的悄悄�?· 实时同步</p>
+            <h2 class="page-title">💬 留言板</h2>
+            <p class="page-sub">两个人的悄悄话 · 实时同步</p>
           </div>
           <div class="page-actions">
             <button type="button" class="pixel-btn ghost active" id="msgNotifyToggle" title="开启后，收到对方新留言会弹出系统通知">🔔 通知</button>
             <div class="seg" id="msgIdentitySeg">
-              <button type="button" class="seg-btn active" data-me="a">我是孙大�?/button>
-              <button type="button" class="seg-btn" data-me="b">我是童大�?/button>
+              <button type="button" class="seg-btn active" data-me="a">我是孙大炮</button>
+              <button type="button" class="seg-btn" data-me="b">我是童大侠</button>
             </div>
           </div>
         </div>
@@ -518,33 +521,33 @@
           <div class="msg-list" id="msgList"></div>
           <div class="msg-compose">
             <textarea class="pixel-textarea" id="msgInput" placeholder="写点什么给 TA..."></textarea>
-            <button class="pixel-btn primary" id="msgSend">发�?💌</button>
+            <button class="pixel-btn primary" id="msgSend">发送 💌</button>
           </div>
         </div>
       </section>
 
-      <!-- 心愿�?-->
+      <!-- 心愿墙 -->
       <section class="page" id="page-wishes">
         <div class="page-head">
           <div>
-            <h2 class="page-title">🛎�?心愿�?/h2>
-            <p class="page-sub">偷偷写下小心愿，�?TA 来点�?/p>
+            <h2 class="page-title">🛎️ 心愿墙</h2>
+            <p class="page-sub">偷偷写下小心愿，等 TA 来点亮</p>
           </div>
           <div class="page-actions">
-            <button class="pixel-btn primary" id="addWishBtn">�?写心�?/button>
+            <button class="pixel-btn primary" id="addWishBtn">✨ 写心愿</button>
           </div>
         </div>
         <div class="card pixel-border wish-hero">
           <span class="wh-icon">🌙</span>
-          <div class="wh-text">心愿不怕多，慢慢都会实现�?b>匿名心愿</b>不会显示名字，悄悄贴上去就好�?/div>
+          <div class="wh-text">心愿不怕多，慢慢都会实现。<b>匿名心愿</b>不会显示名字，悄悄贴上去就好。</div>
         </div>
         <div class="wish-wall" id="wishWall"></div>
       </section>
     </main>
   </div>
 
-  <!-- 移动端底�?Tab -->
-  <nav class="bottom-nav">
+  <!-- 移动端底部 Tab -->
+  <nav class="bottom-nav" id="legacy-bottom-nav" hidden>
     <button class="bn-item active" data-page="dashboard">
       <span>🏠</span><small>首页</small>
     </button>
@@ -555,29 +558,29 @@
       <span>💪</span><small>训练</small>
     </button>
     <button class="bn-item" data-page="horoscope">
-      <span>�?/span><small>星座</small>
+      <span>✨</span><small>星座</small>
     </button>
     <button class="bn-item" data-page="messages">
       <span>💬</span><small>留言</small>
     </button>
     <button class="bn-item" data-page="wishes">
-      <span>🛎�?/span><small>心愿</small>
+      <span>🛎️</span><small>心愿</small>
     </button>
   </nav>
 
   <aside class="music-float" id="musicFloat">
     <button class="music-record-toggle" id="musicFloatToggle" type="button" aria-expanded="false" aria-controls="musicFloatPanel" aria-label="打开今日音乐推荐">
-      <span class="music-record-groove"><span class="music-record-label">�?/span></span>
+      <span class="music-record-groove"><span class="music-record-label">♫</span></span>
       <span class="music-record-pulse"></span>
     </button>
     <div class="music-float-panel" id="musicFloatPanel" hidden>
       <div class="music-float-head">
-        <div><span class="music-kicker">你们的歌�?× 今日心情</span><h3 id="musicWidgetTitle">今天听什�?/h3></div>
+        <div><span class="music-kicker">你们的歌单 × 今日心情</span><h3 id="musicWidgetTitle">今天听什么</h3></div>
         <button class="music-panel-close" id="musicPanelClose" type="button" aria-label="关闭音乐推荐">×</button>
       </div>
-      <p class="music-intro" id="musicIntro">早上好，今天也要元气满满�?/p>
+      <p class="music-intro" id="musicIntro">早上好，今天也要元气满满！</p>
       <div class="music-list" id="musicList"></div>
-      <div class="music-float-foot"><span id="musicReason">正在读取今天的天气与心情</span><span class="music-source-links"><a href="https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6" target="_blank" rel="noopener">Apple �?/a><a href="https://music.163.com/playlist?id=162638755" target="_blank" rel="noopener">网易�?�?/a></span></div>
+      <div class="music-float-foot"><span id="musicReason">正在读取今天的天气与心情</span><span class="music-source-links"><a href="https://music.apple.com/cn/playlist/pl.u-Zmblxd1CVM8G4d6" target="_blank" rel="noopener">Apple ↗</a><a href="https://music.163.com/playlist?id=162638755" target="_blank" rel="noopener">网易云 ↗</a></span></div>
     </div>
   </aside>
 
@@ -596,7 +599,7 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- QRCode 本地加载，避免外�?CDN 故障导致迁移码不可用 -->
+  <!-- QRCode 本地加载，避免外部 CDN 故障导致迁移码不可用 -->
   <script src="assets/qrcodejs-1.0.0.min.js?v=20260814-music-track-display-fix-1"></script>
   <script src="challenge-questions.js?v=20260814-music-track-display-fix-1"></script>
   <script src="features/music/music-data.js?v=20260814-music-track-display-fix-1"></script>

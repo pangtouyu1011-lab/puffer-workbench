@@ -10,6 +10,7 @@
   // ==========================================
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+  const isLifeMode = () => document.documentElement.classList.contains('life-boot') || !!document.getElementById('lifeApp');
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const todayKey = () => {
     const d = new Date();
@@ -424,7 +425,9 @@
     if (name === 'dashboard' && document.getElementById('lifeApp')) {
       document.body.classList.add('life-mode');
       window.dispatchEvent(new CustomEvent('puffer-life-home'));
+      return;
     }
+    if (isLifeMode()) return;
     document.body.dataset.page = name;
     $$('.page').forEach(p => p.classList.remove('active'));
     const target = $(`#page-${name}`);
@@ -450,6 +453,7 @@
   }
 
   function onPageEnter(name) {
+    if (isLifeMode()) return;
     switch (name) {
       case 'dashboard': renderDashboard(); break;
       case 'todo': renderTodoPage(); break;
@@ -1255,6 +1259,7 @@
 
   // 仪表板快速入口
   document.addEventListener('click', (e) => {
+    if (isLifeMode()) return;
     const t = e.target.closest('[data-goto]');
     if (t) {
       const page = t.dataset.goto;
@@ -2105,7 +2110,8 @@
             migrateLegacyWater();
             save();
             updateSyncPill();
-            onPageEnter($('.nav-item.active').dataset.page);
+            const activePage = $('.nav-item.active');
+            if (activePage) onPageEnter(activePage.dataset.page);
             toast('导入成功 ✨');
           }
         } catch (err) {
@@ -2277,7 +2283,8 @@
         save();
         updateSyncPill();
         closeModal();
-        onPageEnter($('.nav-item.active').dataset.page);
+        const activePage = $('.nav-item.active');
+        if (activePage) onPageEnter(activePage.dataset.page);
         toast('已同步 ✨');
       }
     } catch (e) {
@@ -2334,7 +2341,7 @@
   // ==========================================
   // 12. 导航初始化
   // ==========================================
-  $$('.nav-item, .bn-item').forEach(n => n.addEventListener('click', () => goPage(n.dataset.page)));
+  if (!isLifeMode()) $$('.nav-item, .bn-item').forEach(n => n.addEventListener('click', () => goPage(n.dataset.page)));
 
   // 跨标签页同步
   window.addEventListener('storage', (e) => {
@@ -2827,6 +2834,7 @@
   }
 
   function renderCurrent() {
+    if (isLifeMode()) return;
     const active = $('.nav-item.active');
     if (active) onPageEnter(active.dataset.page);
     else renderDashboard();

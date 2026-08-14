@@ -1,0 +1,30 @@
+/* Legacy Dashboard compatibility layer. Keep isolated while legacy DOM/API remains. */
+.mascot-hero{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 14px 8px 8px;box-shadow:var(--shadow)}
+.mascot-img{width:52px;height:52px;border-radius:12px}
+.mascot-bubble{font-family:var(--font-body);font-size:14px;color:var(--ink);max-width:220px;font-weight:500}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.stat-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+.water-mini{background:linear-gradient(135deg,#EAF5FB 0%,#D5ECF6 100%);color:#2C5F7C;border-color:#CDE4F0!important;padding:16px;position:relative;overflow:hidden;min-height:130px;display:flex;flex-direction:column}
+.water-mini::after{content:'馃挧';position:absolute;right:-6px;bottom:-10px;font-size:72px;opacity:.12;transform:rotate(-12deg)}
+.water-mini .stat-value{font-size:24px;margin-top:4px;display:flex;align-items:baseline;gap:4px}
+.water-mini .water-unit{font-family:var(--font-body);font-size:13px;opacity:.75;font-weight:500}
+.water-mini-bar{height:8px;background:rgba(255,255,255,.7);border-radius:999px;margin-top:10px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(44,95,124,.12)}
+.water-mini .water-fill{height:100%;background:linear-gradient(90deg,#8ED0EA,#4FA3CE);border-radius:999px;width:0%;transition:width .45s ease}
+.water-mini-actions{margin-top:auto;padding-top:10px;display:flex;gap:8px}
+.water-mini-actions .pixel-btn{flex:1;background:rgba(255,255,255,.85);border-color:#C9E2EF;border-radius:10px;font-size:16px;font-weight:700;color:#2C5F7C;box-shadow:none}
+.water-mini-actions .pixel-btn.primary{background:linear-gradient(135deg,#6DBFE2,#3E93C0);color:#fff;border-color:transparent}
+.stat-card{padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);position:relative;overflow:hidden;transition:transform .18s ease,box-shadow .22s ease}
+.stat-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+.stat-card::after{content:'';position:absolute;right:-18px;top:-18px;width:72px;height:72px;background:rgba(229,107,58,.05);border-radius:50%}
+.stat-orange{background:linear-gradient(135deg,#F0824A,var(--primary-deep));color:#fff;border-color:transparent}.stat-orange::after{background:rgba(255,255,255,.14)}
+.stat-cream{background:linear-gradient(160deg,#FFF9F1,#FFF3E6)}.stat-pink{background:linear-gradient(160deg,#FCE9EF,#FADAE5)}
+.stat-brown{background:linear-gradient(135deg,#4A3A2E,#3B3228);color:#fff;border-color:transparent}.stat-brown::after{background:rgba(255,255,255,.08)}
+.stat-icon{position:absolute;right:14px;top:14px;font-size:22px;line-height:1;opacity:.9}.stat-label{font-family:var(--font-body);font-size:12px;font-weight:600;letter-spacing:.6px;opacity:.8}.stat-value{font-family:var(--font-num);font-size:30px;font-weight:700;line-height:1.15;margin-top:8px;letter-spacing:-.5px}.stat-sub{font-family:var(--font-body);font-size:13px;margin-top:6px;opacity:.8;font-weight:500}
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.today-train{padding:8px 0}.today-train .muscle{font-family:var(--font-body);font-size:15px;font-weight:700;color:var(--primary-deep)}.today-train .desc{color:var(--ink-soft);font-size:14px;margin-top:8px;line-height:1.6}.today-train.is-rest .muscle{color:var(--muted)}
+.quick-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.quick-tile{display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 8px;background:var(--cream);border:1px solid var(--line);border-radius:12px;font-family:var(--font-body);font-size:13.5px;font-weight:600;cursor:pointer;box-shadow:var(--shadow-sm);transition:transform .12s,box-shadow .18s,background .18s,border-color .18s}.quick-tile:hover{background:var(--surface);border-color:#E4D5C4;transform:translateY(-2px);box-shadow:0 6px 14px -6px rgba(59,50,40,.18)}.quick-tile:active{transform:scale(.97)}.qt-icon{font-size:22px}
+@media (max-width:900px){.stat-grid{grid-template-columns:repeat(2,1fr);gap:10px}}
+@media (max-width:480px){.stat-grid{grid-template-columns:1fr 1fr}.stat-row{grid-template-columns:1fr 1fr;gap:10px}}
+@media (min-width:1200px){.dash-grid{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+.water-mini-ta{font-size:11px;color:var(--ink-soft);margin-top:3px;font-weight:600}
+.stat-orange .stat-value,.stat-brown .stat-value,.water-mini .stat-value{background:none;-webkit-text-fill-color:currentColor}
