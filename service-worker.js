@@ -1,6 +1,7 @@
 // Runtime cache generation. Bump this whenever the production shell changes so
 // installed PWAs cannot keep the previous shell generation after activation.
-const CACHE_NAME = 'puffer-shell-v12-legacy-cleanup';
+const CACHE_NAME = 'puffer-shell-v13-static-assets';
+const STATIC_ASSET_VERSION = '20260814-static-assets-1';
 const CORE_TIMEOUT_MS = 8000;
 
 self.addEventListener('install', event => {
@@ -23,6 +24,30 @@ function isAlwaysFresh(request) {
     /\.(?:js|css)$/.test(url.pathname);
 }
 
+function isStaticAsset(request) {
+  return new URL(request.url).pathname.startsWith('/assets/');
+}
+
+function versionedAssetRequest(request) {
+  const url = new URL(request.url);
+  // Normalize every first-party asset to the same release key. This also
+  // replaces older ad-hoc values such as ?v=1 or blink-specific revisions.
+  url.searchParams.set('v', STATIC_ASSET_VERSION);
+  return new Request(url.href, request);
+}
+
+async function fetchStaticAsset(request) {
+  const versioned = versionedAssetRequest(request);
+  const cached = await caches.match(versioned);
+  const update = fetch(new Request(versioned, { cache: 'no-store' })).then(response => {
+    if (response.ok) {
+      caches.open(CACHE_NAME).then(cache => cache.put(versioned, response.clone())).catch(() => {});
+    }
+    return response;
+  }).catch(() => cached || caches.match(request));
+  return cached || update;
+}
+
 async function fetchFresh(request, fallback = true) {
   const cached = fallback ? await caches.match(request) : null;
   try {
@@ -43,6 +68,10 @@ async function fetchFresh(request, fallback = true) {
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) return;
+  if (isStaticAsset(request)) {
+    event.respondWith(fetchStaticAsset(request));
+    return;
+  }
   if (request.mode === 'navigate' || isAlwaysFresh(request)) {
     event.respondWith(fetchFresh(request));
     return;
