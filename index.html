@@ -7,15 +7,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#F2F2F7" />
   <title>大童小孙之家</title>
-  <link rel="icon" type="image/png" href="assets/puffer.webp" />
-  <link rel="apple-touch-icon" href="assets/puffer-180.png" />
-  <link rel="manifest" href="site.webmanifest" />
+  <link rel="icon" type="image/png" href="assets/puffer.webp?v=20260817-local-fonts-sw-2" />
+  <link rel="apple-touch-icon" href="assets/puffer-180.png?v=20260817-local-fonts-sw-2" />
+  <link rel="manifest" href="site.webmanifest?v=20260817-local-fonts-sw-2" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="大童小孙之家" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script>
     (() => {
-      const pageVersion = '20260814-static-assets-1';
+      const pageVersion = '20260817-local-fonts-sw-2';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -23,26 +23,25 @@
           if (!remote || !remote.version || remote.version === pageVersion) return;
           if (sessionStorage.getItem(reloadKey) === remote.version) return;
           sessionStorage.setItem(reloadKey, remote.version);
-          const nextUrl = `${location.pathname}?v=${encodeURIComponent(remote.version)}${location.hash}`;
-          location.replace(nextUrl);
+          const nextUrl = new URL(location.href);
+          nextUrl.searchParams.set('v', remote.version);
+          location.replace(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
         })
         .catch(() => {});
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(reg => reg.update()).catch(() => {});
     })();
   </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="legacy-dashboard.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="legacy-training.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="legacy-navigation.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="assets/icons/phosphor/phosphor-regular.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="life.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="life-ritual.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="life-dashboard.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="life-dashboard-music.css?v=20260814-static-assets-1" />
-  <link rel="stylesheet" href="life-complete-state.css?v=20260814-static-assets-1" />
+  <link rel="stylesheet" href="assets/fonts/fonts.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="styles.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="legacy-dashboard.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="legacy-training.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="legacy-navigation.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="assets/icons/phosphor/phosphor-regular.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="life.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="life-ritual.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="life-dashboard.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="life-dashboard-music.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="life-complete-state.css?v=20260817-local-fonts-sw-2" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -600,16 +599,16 @@
   <div class="toast" id="toast"></div>
 
   <!-- QRCode 本地加载，避免外部 CDN 故障导致迁移码不可用 -->
-  <script src="assets/qrcodejs-1.0.0.min.js?v=20260814-static-assets-1"></script>
-  <script src="challenge-questions.js?v=20260814-static-assets-1"></script>
-  <script src="features/music/music-data.js?v=20260814-static-assets-1"></script>
-  <script src="features/music/music-state.js?v=20260814-static-assets-1"></script>
-  <script src="features/music/music-recommend.js?v=20260814-static-assets-1"></script>
-  <script src="features/music/music-reason.js?v=20260814-static-assets-1"></script>
-  <script src="features/music/music-view.js?v=20260814-static-assets-1"></script>
-  <script src="app.js?v=20260814-static-assets-1"></script>
-  <script src="push.js?v=20260814-static-assets-1"></script>
-  <script src="life.js?v=20260814-static-assets-1"></script>
-  <script src="life-complete-state.js?v=20260814-static-assets-1"></script>
+  <script src="assets/qrcodejs-1.0.0.min.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="challenge-questions.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="features/music/music-data.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="features/music/music-state.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="features/music/music-recommend.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="features/music/music-reason.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="features/music/music-view.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="app.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="push.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="life.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="life-complete-state.js?v=20260817-local-fonts-sw-2"></script>
 </body>
 </html>

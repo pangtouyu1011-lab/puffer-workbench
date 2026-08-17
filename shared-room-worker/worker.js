@@ -265,7 +265,17 @@ function roomMirrorRecords(data, revision, now) {
     const updatedAt = Number(value?.updatedAt) || Number(fallbackUpdatedAt) || now;
     records.push({ type, id: String(id), payload, createdAt, updatedAt, deleted: value?.deleted ? 1 : 0 });
   };
-  const arrays = ['todos', 'trainings', 'messages', 'gallery', 'meals', 'wishes', 'challengeAnswers'];
+  const arrays = [
+    'todos',
+    'trainings',
+    'messages',
+    'gallery',
+    'travels',
+    'meals',
+    'wishes',
+    'hydrationLog',
+    'challengeAnswers'
+  ];
   arrays.forEach(type => {
     (Array.isArray(data?.[type]) ? data[type] : []).forEach(item => add(type, item?.id, item));
   });

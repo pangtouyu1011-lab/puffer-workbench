@@ -3,6 +3,37 @@
   'use strict';
 
   let context = null;
+  const MUSIC_CACHE_RETENTION_DAYS = 14;
+  const MUSIC_REJECTIONS_PER_SLOT = 50;
+
+  function objectRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function calendarDay(dateKey) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ''));
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const value = Date.UTC(year, month - 1, day);
+    const parsed = new Date(value);
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+    return Math.floor(value / 86400000);
+  }
+
+  function slotDate(slotKey) {
+    const match = /^(\d{4}-\d{2}-\d{2}):/.exec(String(slotKey || ''));
+    return match ? match[1] : '';
+  }
+
+  function shouldKeepSlot(slotKey, activeDate) {
+    const activeDay = calendarDay(activeDate);
+    const itemDay = calendarDay(slotDate(slotKey));
+    if (activeDay === null || itemDay === null) return false;
+    const age = activeDay - itemDay;
+    return age >= 0 && age < MUSIC_CACHE_RETENTION_DAYS;
+  }
 
   function configure(next) {
     context = next;
@@ -16,11 +47,9 @@
       ? state.settings._musicHistory
       : [];
     state.settings._musicLikes = state.settings._musicLikes || {};
-    state.settings._musicRejectedForSlot = Array.isArray(state.settings._musicRejectedForSlot)
-      ? state.settings._musicRejectedForSlot
-      : [];
-    state.settings._musicBlocked = state.settings._musicBlocked || {};
-    state.settings._musicSlotSongKeys = state.settings._musicSlotSongKeys || {};
+    state.settings._musicRejectedBySlot = objectRecord(state.settings._musicRejectedBySlot);
+    state.settings._musicBlocked = objectRecord(state.settings._musicBlocked);
+    state.settings._musicSlotSongKeys = objectRecord(state.settings._musicSlotSongKeys);
     return state.settings;
   }
 
@@ -32,8 +61,9 @@
     return getSettings()._musicLikes;
   }
 
-  function getRejectedForSlot() {
-    return getSettings()._musicRejectedForSlot;
+  function getRejectedForSlot(slotKey) {
+    const rejected = getSettings()._musicRejectedBySlot[slotKey];
+    return Array.isArray(rejected) ? rejected : [];
   }
 
   function getBlocked() {
@@ -42,6 +72,45 @@
 
   function getSlotSongKeys() {
     return getSettings()._musicSlotSongKeys;
+  }
+
+  function cleanupMusicCaches(activeDate) {
+    const settings = getSettings();
+    let changed = false;
+
+    // Legacy versions stored every "换一首" choice in one global array. Its
+    // slot cannot be recovered, so retaining it would keep excluding songs
+    // forever. The existing -1 preference remains as a soft ranking signal.
+    if (Object.prototype.hasOwnProperty.call(settings, '_musicRejectedForSlot')) {
+      delete settings._musicRejectedForSlot;
+      changed = true;
+    }
+
+    const nextRejected = {};
+    Object.entries(settings._musicRejectedBySlot).forEach(([slotKey, values]) => {
+      if (!shouldKeepSlot(slotKey, activeDate) || !Array.isArray(values)) {
+        changed = true;
+        return;
+      }
+      const normalized = Array.from(new Set(values.filter(value => typeof value === 'string' && value)))
+        .slice(-MUSIC_REJECTIONS_PER_SLOT);
+      if (normalized.length) nextRejected[slotKey] = normalized;
+      if (normalized.length !== values.length || !normalized.length) changed = true;
+    });
+    if (Object.keys(nextRejected).length !== Object.keys(settings._musicRejectedBySlot).length) changed = true;
+    settings._musicRejectedBySlot = nextRejected;
+
+    const nextSlotSongs = {};
+    Object.entries(settings._musicSlotSongKeys).forEach(([slotKey, songKey]) => {
+      if (!shouldKeepSlot(slotKey, activeDate) || typeof songKey !== 'string' || !songKey) {
+        changed = true;
+        return;
+      }
+      nextSlotSongs[slotKey] = songKey;
+    });
+    if (Object.keys(nextSlotSongs).length !== Object.keys(settings._musicSlotSongKeys).length) changed = true;
+    settings._musicSlotSongKeys = nextSlotSongs;
+    return changed;
   }
 
   function getCurrentMusic() {
@@ -88,20 +157,37 @@
     return context.save(options);
   }
 
-  function recordFeedback(key, action) {
+  function recordFeedback(key, action, slotKey) {
     if (!key) return false;
     const settings = getSettings();
+    const activeDate = slotDate(slotKey) || (context && context.todayKey ? context.todayKey() : '');
+    if (activeDate) cleanupMusicCaches(activeDate);
     if (action === 'like') {
       if (settings._musicLikes[key] === 1) delete settings._musicLikes[key];
       else settings._musicLikes[key] = 1;
     } else if (action === 'dislike') {
       settings._musicLikes[key] = -1;
-      settings._musicRejectedForSlot = Array.from(new Set([
-        ...settings._musicRejectedForSlot,
-        key
-      ]));
+      if (slotKey) {
+        settings._musicRejectedBySlot[slotKey] = Array.from(new Set([
+          ...getRejectedForSlot(slotKey),
+          key
+        ])).slice(-MUSIC_REJECTIONS_PER_SLOT);
+        if (settings._musicSlotSongKeys[slotKey] === key) delete settings._musicSlotSongKeys[slotKey];
+        const current = settings._musicCurrentMusic;
+        const currentPart = current && current.slot === 'afternoon' ? 'noon' : current && current.slot;
+        const currentSlotKey = current && current.date && currentPart
+          ? current.date + ':' + currentPart + ':all'
+          : '';
+        if (current && current.songKey === key && currentSlotKey === slotKey) delete settings._musicCurrentMusic;
+      }
     } else if (action === 'block') {
       settings._musicBlocked[key] = true;
+      Object.entries(settings._musicSlotSongKeys).forEach(([cachedSlot, cachedKey]) => {
+        if (cachedKey === key) delete settings._musicSlotSongKeys[cachedSlot];
+      });
+      if (settings._musicCurrentMusic && settings._musicCurrentMusic.songKey === key) {
+        delete settings._musicCurrentMusic;
+      }
     } else {
       return false;
     }
@@ -128,6 +214,7 @@
     getRejectedForSlot,
     getBlocked,
     getSlotSongKeys,
+    cleanupMusicCaches,
     getCurrentMusic,
     saveMusicTrack,
     saveHistoryRecord,

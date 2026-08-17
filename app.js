@@ -525,9 +525,9 @@
   };
   const MusicRecommend = window.PufferMusicRecommend;
   const MusicState = window.PufferMusicState;
-  MusicState.configure({ getState: () => state, save });
+  MusicState.configure({ getState: () => state, todayKey, save });
   MusicRecommend.configure({ getState: () => state, todayKey, save });
-  const { currentMusicDaypart, musicWeatherProfile, musicWeekProfile, musicSongKey, musicSettings, pickMusicFor, getMusicSlotSong } = MusicRecommend;
+  const { currentMusicDaypart, musicWeatherProfile, musicWeekProfile, musicSongKey, musicSlotKey, musicSettings, pickMusicFor, getMusicSlotSong } = MusicRecommend;
   function renderMusicWidget() {
     const list = $('#musicList'); if (!list) return;
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
@@ -537,20 +537,16 @@
     if (intro) intro.textContent = MUSIC_DAYPARTS[currentMusicDaypart()].greeting;
     if (reason) reason.textContent = week.label + ' · ' + weather.reason;
     const part = currentMusicDaypart(); const info = MUSIC_DAYPARTS[part];
-    const renderSong = (song, label, stream) => { if (!song) return ''; const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完'; const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key]; return '<div class="music-person-label">' + label + '</div><article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback-label">喜欢这首歌吗？</div><div class="music-feedback"><button data-music-feedback="like" data-music-stream="' + stream + '" data-music-key="' + escapeHtml(key) + '" class="' + (liked === 1 ? 'active' : '') + '">👍 喜欢</button><button data-music-feedback="dislike" data-music-stream="' + stream + '" data-music-key="' + escapeHtml(key) + '">👎 换一首</button><button data-music-feedback="block" data-music-stream="' + stream + '" data-music-key="' + escapeHtml(key) + '">🚫 不再推荐</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener">↗</a></article>'; };
-    list.innerHTML = renderSong(getMusicSlotSong(part, '你们的网易云歌单'), '我的推荐 · 网易云歌单', 'netease') + renderSong(getMusicSlotSong(part, ['你们的 Apple Music 歌单', '相似推荐']), '对方推荐 · Apple Music + 相似风格', 'apple');
+    const renderSong = (song, label, stream, slotKey) => { if (!song) return ''; const lyric = MUSIC_LYRICS[song.title] || '让这首歌陪你把此刻过完'; const key = musicSongKey(song); const liked = musicSettings()._musicLikes[key]; const feedbackData = ' data-music-stream="' + stream + '" data-music-key="' + escapeHtml(key) + '" data-music-slot-key="' + escapeHtml(slotKey) + '"'; return '<div class="music-person-label">' + label + '</div><article class="music-track"><span class="music-track-cover">' + info.icon + '<small class="music-track-time">' + info.label + '</small></span><div><div class="music-track-title">' + escapeHtml(song.title) + '</div><div class="music-track-artist">' + escapeHtml(song.artist) + '</div><span class="music-track-source">' + escapeHtml(song.source || '风格推荐') + '</span><div class="music-lyric">“' + escapeHtml(lyric) + '”</div><div class="music-feedback-label">喜欢这首歌吗？</div><div class="music-feedback"><button data-music-feedback="like"' + feedbackData + ' class="' + (liked === 1 ? 'active' : '') + '">👍 喜欢</button><button data-music-feedback="dislike"' + feedbackData + '>👎 换一首</button><button data-music-feedback="block"' + feedbackData + '>🚫 不再推荐</button></div></div><a href="' + escapeHtml(song.url) + '" target="_blank" rel="noopener">↗</a></article>'; };
+    const neteaseSource = '你们的网易云歌单'; const appleSources = ['你们的 Apple Music 歌单', '相似推荐'];
+    list.innerHTML = renderSong(getMusicSlotSong(part, neteaseSource), '我的推荐 · 网易云歌单', 'netease', musicSlotKey(part, neteaseSource)) + renderSong(getMusicSlotSong(part, appleSources), '对方推荐 · Apple Music + 相似风格', 'apple', musicSlotKey(part, appleSources));
     list.dataset.musicRenderedSlot = todayKey() + ':' + part;
   }
 
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-music-feedback]'); if (!button) return;
-    event.preventDefault(); event.stopPropagation(); const settings = musicSettings(); const key = button.dataset.musicKey; const action = button.dataset.musicFeedback; const value = action === 'like' ? 1 : -1;
-    if (action === 'like' && settings._musicLikes[key] === 1) delete settings._musicLikes[key]; else settings._musicLikes[key] = value;
-    if (button.dataset.musicFeedback === 'block') { settings._musicBlocked = settings._musicBlocked || {}; settings._musicBlocked[key] = true; }
-    if (action === 'dislike') { settings._musicRejectedForSlot = Array.from(new Set([...(settings._musicRejectedForSlot || []), key])); }
-    if (action === 'block') { settings._musicBlocked = settings._musicBlocked || {}; settings._musicBlocked[key] = true; }
-    if (action !== 'like') { settings._musicSlotSongKeys = {}; for (const [slot, cachedKey] of musicSlotCache) { if (cachedKey === key) musicSlotCache.delete(slot); } }
-    save({ silent: true }); renderMusicWidget();
+    event.preventDefault(); event.stopPropagation(); const key = button.dataset.musicKey; const action = button.dataset.musicFeedback; const slotKey = button.dataset.musicSlotKey;
+    if (MusicRecommend.recordFeedback(key, action, slotKey)) renderMusicWidget();
   });
   let musicSlotTimer = null;
   function notifyMusicRecommendation() {

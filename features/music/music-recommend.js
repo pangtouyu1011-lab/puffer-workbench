@@ -27,6 +27,9 @@
   function musicSongKey(song) { return (song.source || '') + ':' + (song.id || song.artist + ':' + song.title); }
   const musicSlotCache = new Map();
   function musicSettings() { return MusicState.getSettings(); }
+  function musicSlotKey(part, sourceFilter, date) {
+    return (date || ctx.todayKey()) + ':' + part + ':' + String(sourceFilter || 'all');
+  }
   const PROFILE_TAG_MAP = {
     morning: ['早晨'], noon: ['下午'], night: ['夜晚'], rain: ['下雨天'],
     cloud: ['阴天'], sun: ['晴天'], clear: ['晴天'], happy: ['开心', '轻松'],
@@ -83,17 +86,32 @@
       score += (musicHash(seed + index) % 100) / 100;
       return { song, score };
     }).sort((a, b) => b.score - a.score);
-    const chosen = ranked.find(item => !excluded || !excluded.has(item.song.title)) || ranked[0];
+    const chosen = ranked.find(item => {
+      if (!excluded) return true;
+      return !excluded.has(musicSongKey(item.song)) && !excluded.has(item.song.title);
+    });
     return chosen ? [chosen.song] : [];
   }
   function getMusicSlotSong(part, sourceFilter) {
-    const settings = musicSettings(); const slotKey = ctx.todayKey() + ':' + part + ':' + (sourceFilter || 'all'); const rejected = new Set([...(settings._musicRejectedForSlot || []), ...Object.keys(settings._musicBlocked || {})]);
-    if (musicSlotCache.has(slotKey) && !rejected.has(musicSlotCache.get(slotKey))) { const memorySong = MUSIC_LIBRARY.find(song => musicSongKey(song) === musicSlotCache.get(slotKey)); if (memorySong) return memorySong; }
+    const activeDate = ctx.todayKey(); const settings = musicSettings(); const slotKey = musicSlotKey(part, sourceFilter, activeDate); const cleaned = MusicState.cleanupMusicCaches(activeDate); const rejected = new Set([...MusicState.getRejectedForSlot(slotKey), ...Object.keys(settings._musicBlocked || {})]);
+    for (const cachedSlot of musicSlotCache.keys()) { if (!Object.prototype.hasOwnProperty.call(settings._musicSlotSongKeys, cachedSlot)) musicSlotCache.delete(cachedSlot); }
+    if (musicSlotCache.has(slotKey) && !rejected.has(musicSlotCache.get(slotKey))) { const memorySong = MUSIC_LIBRARY.find(song => musicSongKey(song) === musicSlotCache.get(slotKey)); if (memorySong) { if (cleaned) ctx.save({ silent: true }); return memorySong; } }
     settings._musicSlotSongKeys = settings._musicSlotSongKeys || {};
-    if (settings._musicSlotSongKeys[slotKey] && !rejected.has(settings._musicSlotSongKeys[slotKey])) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKeys[slotKey]); if (cached) return cached; }
-    const excludedTitles = new Set(MUSIC_LIBRARY.filter(s => rejected.has(musicSongKey(s))).map(s => s.title)); const song = pickMusicFor(part, excludedTitles, sourceFilter)[0]; if (!song) return null;
+    if (settings._musicSlotSongKeys[slotKey] && !rejected.has(settings._musicSlotSongKeys[slotKey])) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKeys[slotKey]); if (cached) { if (cleaned) ctx.save({ silent: true }); return cached; } }
+    const song = pickMusicFor(part, rejected, sourceFilter)[0]; if (!song) { if (cleaned) ctx.save({ silent: true }); return null; }
     settings._musicSlotSongKeys[slotKey] = musicSongKey(song); musicSlotCache.set(slotKey, musicSongKey(song));
     settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); ctx.save({ silent: true }); return song;
+  }
+
+  function recordFeedback(key, action, slotKey) {
+    if (!MusicState.recordFeedback(key, action, slotKey)) return false;
+    if (action === 'dislike' && slotKey) musicSlotCache.delete(slotKey);
+    if (action === 'block') {
+      for (const [cachedSlot, cachedKey] of musicSlotCache) {
+        if (cachedKey === key) musicSlotCache.delete(cachedSlot);
+      }
+    }
+    return true;
   }
 
   function ensurePastMusicRecords(date, currentSlot) {
@@ -123,15 +141,14 @@
   }
 
   function getCurrentMusic() {
-    const date = ctx.todayKey(); const slot = currentMusicSlot(); const cached = MusicState.getCurrentMusic();
-    if (cached && cached.date === date && cached.slot === slot) {
+    const date = ctx.todayKey(); const slot = currentMusicSlot(); const pickPart = slot === 'afternoon' ? 'noon' : slot; const currentSlotKey = musicSlotKey(pickPart, null, date); const cached = MusicState.getCurrentMusic(); const currentRejected = new Set([...MusicState.getRejectedForSlot(currentSlotKey), ...Object.keys(MusicState.getBlocked())]);
+    if (cached && cached.date === date && cached.slot === slot && !currentRejected.has(cached.songKey)) {
       const cachedSong = cached.song || MUSIC_LIBRARY.find(item => musicSongKey(item) === cached.songKey);
       if (cachedSong) {
         ensurePastMusicRecords(date, slot);
         return { ...cached, song: cachedSong, cached: true };
       }
     }
-    const pickPart = slot === 'afternoon' ? 'noon' : slot;
     const song = getMusicSlotSong(pickPart);
     if (!song) return null;
     const reasonModule = window.PufferMusicReason;
@@ -151,9 +168,11 @@
     musicWeatherProfile,
     musicWeekProfile,
     musicSongKey,
+    musicSlotKey,
     musicSettings,
     pickMusicFor,
     getMusicSlotSong,
+    recordFeedback,
     getCurrentMusic
   };
 })();
