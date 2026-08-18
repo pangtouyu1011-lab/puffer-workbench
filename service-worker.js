@@ -1,9 +1,10 @@
 // Keep one release identifier across index.html, version.json and every cache key.
 const CACHE_PREFIX = 'puffer-';
-const CACHE_NAME = 'puffer-shell-v15-review-marker';
-const RUNTIME_CACHE_NAME = 'puffer-runtime-v15-review-marker';
-const STATIC_ASSET_VERSION = '20260817-local-fonts-sw-2';
+const CACHE_NAME = 'puffer-shell-v19-staged-cache';
+const RUNTIME_CACHE_NAME = 'puffer-runtime-v19-staged-cache';
+const STATIC_ASSET_VERSION = '20260818-review-return-scroll-1';
 const CORE_TIMEOUT_MS = 8000;
+const WARM_CACHE_BATCH_SIZE = 6;
 
 const versionedPath = path => `${path}?v=${STATIC_ASSET_VERSION}`;
 const FONT_ASSET_FILES = [
@@ -11,7 +12,7 @@ const FONT_ASSET_FILES = [
   ...Array.from({ length: 14 }, (_, index) => `noto-sans-sc-ui-${String(index + 1).padStart(2, '0')}.woff2`),
   ...Array.from({ length: 14 }, (_, index) => `noto-serif-sc-ui-${String(index + 1).padStart(2, '0')}.woff2`)
 ];
-const CORE_SHELL_FILES = [
+const CRITICAL_SHELL_FILES = [
   'styles.css', 'legacy-dashboard.css', 'legacy-training.css', 'legacy-navigation.css',
   'life.css', 'life-ritual.css', 'life-dashboard.css', 'life-dashboard-music.css', 'life-complete-state.css',
   'challenge-questions.js', 'features/music/music-data.js', 'features/music/music-state.js',
@@ -20,7 +21,7 @@ const CORE_SHELL_FILES = [
   'assets/qrcodejs-1.0.0.min.js', 'assets/fonts/fonts.css',
   'assets/icons/phosphor/phosphor-regular.css', 'assets/icons/phosphor/Phosphor.woff2'
 ];
-const CORE_VISUAL_FILES = [
+const WARM_VISUAL_FILES = [
   'assets/puffer.webp', 'assets/puffer-180.png', 'assets/puffer-192.png', 'assets/puffer-512.png',
   'assets/puffer-page-days.webp', 'assets/puffer-page-things.webp', 'assets/puffer-page-us.webp',
   'assets/puffer-state-happy.webp', 'assets/puffer-state-quiet.webp',
@@ -28,18 +29,58 @@ const CORE_VISUAL_FILES = [
   'assets/weather-sunny-pet.webp', 'assets/weather-cloud-pet.webp',
   'assets/weather-rain-pet.webp', 'assets/weather-snow-pet.webp'
 ];
-const PRECACHE_URLS = [
+const CRITICAL_CACHE_URLS = [
   '/index.html',
   versionedPath('/site.webmanifest'),
-  ...CORE_SHELL_FILES.map(file => versionedPath(`/${file}`)),
-  ...CORE_VISUAL_FILES.map(file => versionedPath(`/${file}`)),
-  ...FONT_ASSET_FILES.map(file => versionedPath(`/assets/fonts/${file}`))
+  ...CRITICAL_SHELL_FILES.map(file => versionedPath(`/${file}`))
 ];
+const WARM_VISUAL_URLS = WARM_VISUAL_FILES.map(file => versionedPath(`/${file}`));
+const WARM_FONT_URLS = FONT_ASSET_FILES.map(file => versionedPath(`/assets/fonts/${file}`));
+let optionalWarmPromise = null;
+
+function cacheRequest(path) {
+  return new Request(new URL(path, self.location.origin), { cache: 'reload' });
+}
+
+async function warmCacheRequest(cache, path) {
+  const request = cacheRequest(path);
+  if (await cache.match(request)) return 'cached';
+  try {
+    const response = await fetchWithTimeout(request);
+    if (!response.ok) return 'failed';
+    await cache.put(request, response.clone());
+    return 'stored';
+  } catch (_) {
+    return 'failed';
+  }
+}
+
+async function warmCacheGroup(cache, paths) {
+  const summary = { cached: 0, stored: 0, failed: 0 };
+  for (let index = 0; index < paths.length; index += WARM_CACHE_BATCH_SIZE) {
+    const batch = paths.slice(index, index + WARM_CACHE_BATCH_SIZE);
+    const results = await Promise.all(batch.map(path => warmCacheRequest(cache, path)));
+    results.forEach(result => { summary[result] += 1; });
+  }
+  return summary;
+}
+
+function warmOptionalCaches() {
+  if (optionalWarmPromise) return optionalWarmPromise;
+  optionalWarmPromise = (async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // 先补齐首屏图片，再分批补字体；任一非关键文件失败都不会阻塞其他文件。
+    const visuals = await warmCacheGroup(cache, WARM_VISUAL_URLS);
+    const fonts = await warmCacheGroup(cache, WARM_FONT_URLS);
+    return { visuals, fonts };
+  })().finally(() => { optionalWarmPromise = null; });
+  return optionalWarmPromise;
+}
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    const requests = PRECACHE_URLS.map(path => new Request(new URL(path, self.location.origin), { cache: 'reload' }));
+    const requests = CRITICAL_CACHE_URLS.map(cacheRequest);
     await cache.addAll(requests);
     await self.skipWaiting();
   })());
@@ -52,6 +93,11 @@ self.addEventListener('activate', event => {
     await Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && !current.has(key)).map(key => caches.delete(key)));
     await self.clients.claim();
   })());
+});
+
+self.addEventListener('message', event => {
+  if (event.data?.type !== 'puffer-warm-cache') return;
+  event.waitUntil(warmOptionalCaches().catch(() => undefined));
 });
 
 function isAlwaysFresh(request) {

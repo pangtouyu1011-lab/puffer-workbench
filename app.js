@@ -10,6 +10,28 @@
   // ==========================================
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+  const activeSubmissionLocks = new Set();
+  async function runSubmission(button, task, key = button) {
+    const lockKey = key || button || task;
+    if (activeSubmissionLocks.has(lockKey) || button?.dataset.submitting === '1') return false;
+    activeSubmissionLocks.add(lockKey);
+    if (button) {
+      button.dataset.submitting = '1';
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.classList.add('is-submitting');
+    }
+    try { return await task(); }
+    finally {
+      activeSubmissionLocks.delete(lockKey);
+      if (button) {
+        delete button.dataset.submitting;
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.classList.remove('is-submitting');
+      }
+    }
+  }
   const isLifeMode = () => document.documentElement.classList.contains('life-boot') || !!document.getElementById('lifeApp');
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const todayKey = () => {
@@ -148,6 +170,67 @@
     MUSIC_LIBRARY
   } = MUSIC_DATA;
   const STORAGE_KEY = 'pufferwork:v1';
+  const INPUT_DRAFT_STORAGE_KEY = 'puffer-input-drafts:v1';
+  const INPUT_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const INPUT_DRAFT_MAX_RECORDS = 24;
+  const INPUT_DRAFT_MAX_FIELD_LENGTH = 4000;
+
+  // 输入草稿只保存在当前浏览器，不挂到 state，也不会进入房间同步快照。
+  function inputDraftKey(scope) {
+    const room = state.settings?.room || {};
+    const place = room.joined && room.id ? `room:${room.id}` : 'local';
+    return `${place}:${state.settings?.me || 'a'}:${String(scope || '').slice(0, 120)}`;
+  }
+
+  function readInputDraftStore() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(INPUT_DRAFT_STORAGE_KEY) || '{}');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const cutoff = Date.now() - INPUT_DRAFT_TTL_MS;
+      return Object.fromEntries(Object.entries(parsed).filter(([, record]) => (
+        record && typeof record === 'object' && Number(record.updatedAt || 0) >= cutoff &&
+        record.fields && typeof record.fields === 'object' && !Array.isArray(record.fields)
+      )));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeInputDraftStore(store) {
+    try {
+      const entries = Object.entries(store).sort((left, right) => Number(right[1]?.updatedAt || 0) - Number(left[1]?.updatedAt || 0));
+      localStorage.setItem(INPUT_DRAFT_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries.slice(0, INPUT_DRAFT_MAX_RECORDS))));
+      return true;
+    } catch (error) {
+      console.warn('Input draft persistence failed', error);
+      return false;
+    }
+  }
+
+  function getInputDraft(scope) {
+    const record = readInputDraftStore()[inputDraftKey(scope)];
+    if (!record) return null;
+    return { updatedAt: Number(record.updatedAt || 0), fields: { ...record.fields } };
+  }
+
+  function setInputDraft(scope, fields) {
+    const normalized = Object.fromEntries(Object.entries(fields || {}).map(([name, value]) => [
+      String(name).slice(0, 80),
+      String(value == null ? '' : value).slice(0, INPUT_DRAFT_MAX_FIELD_LENGTH)
+    ]));
+    if (!Object.keys(normalized).length) return false;
+    const store = readInputDraftStore();
+    store[inputDraftKey(scope)] = { updatedAt: Date.now(), fields: normalized };
+    return writeInputDraftStore(store);
+  }
+
+  function clearInputDraft(scope) {
+    const store = readInputDraftStore();
+    const key = inputDraftKey(scope);
+    if (!Object.prototype.hasOwnProperty.call(store, key)) return true;
+    delete store[key];
+    return writeInputDraftStore(store);
+  }
 
   const defaultPlan = {
     0: { name: '休息', muscle: 'rest', desc: '今天好好休息，恢复最重要 🌿' }, // 周日
@@ -275,7 +358,7 @@
       city: '杭州',
       syncCode: '',
       cloudUrl: '',  // 可选：自建云同步 API
-      room: { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 },
+      room: { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0, pendingSyncAt: 0, pendingMessageIds: [], lastPushError: '' },
     }
   };
 
@@ -321,7 +404,7 @@
       }
       if (!state.fortune) state.fortune = null;
       if (state.settings.lastClean === undefined) state.settings.lastClean = 0;
-        if (!state.settings.room) state.settings.room = { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
+        if (!state.settings.room) state.settings.room = { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0, pendingSyncAt: 0, pendingMessageIds: [], lastPushError: '' };
         else {
           const rm = state.settings.room;
           // 旧版使用 Cloudflare Worker；将旧默认 Worker 和当前默认 Supabase 房间统一切到同一 Worker。
@@ -333,6 +416,10 @@
             rm.anon = '';
           } else if (!rm.backend) rm.backend = (rm.url && (rm.url.includes('workers.dev') || rm.url.includes('20051011.xyz'))) ? 'worker' : 'supabase';
           if (rm.anon === undefined) rm.anon = rm.backend === 'supabase' ? DEFAULT_SUPABASE_ANON : '';
+          if (!Number.isFinite(Number(rm.pendingSyncAt))) rm.pendingSyncAt = 0;
+          if (!Array.isArray(rm.pendingMessageIds)) rm.pendingMessageIds = [];
+          rm.pendingMessageIds = [...new Set(rm.pendingMessageIds.map(String).filter(Boolean))];
+          if (typeof rm.lastPushError !== 'string') rm.lastPushError = '';
         }
         // 清理历史重复的默认菜单（按菜名去重，软删除多余的）
         const removed = dedupeMeals();
@@ -346,8 +433,10 @@
   function save(opts) {
     try {
       updateInteractionHistory();
+      if (!opts || !opts.silent) markPendingSync();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       window.dispatchEvent(new CustomEvent('puffer-state-change'));
+      emitSyncStatus();
       // 用户操作触发推送；但推送/轮询内部保存时用 silent 跳过，
       // 否则「推送成功→save→再推送」会形成每 1 秒一次的无限循环，
       // 双人在线时互相抢写，rev 疯涨，版本冲突变成必然。
@@ -436,13 +525,12 @@
     $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
     $$('.bn-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
 
-    // 进入留言页：清零未读红点与标题角标
-    if (name === 'messages' && state.settings.unreadMsgCount) {
-      state.settings.unreadMsgCount = 0;
-      save({ silent: true });
+    // 进入留言页：清零未读红点与标题角标（仅本机状态，不触发房间上传）
+    if (name === 'messages') markMessagesRead();
+    else {
+      updateMsgBadge();
+      updateTitleBadge();
     }
-    updateMsgBadge();
-    updateTitleBadge();
     pageMascotQuote(name); // 侧栏河豚说一句应景的话
 
     // 滚动到顶部
@@ -668,34 +756,40 @@
     };
     renderList();
     $('#galClose')?.addEventListener('click', closeModal);
-    $('#galAdd')?.addEventListener('click', () => {
+    const galleryAdd = $('#galAdd');
+    galleryAdd?.addEventListener('click', () => runSubmission(galleryAdd, async () => {
       const url = $('#galUrl').value.trim();
       const cap = $('#galCap').value.trim();
       const file = $('#galFile').files[0];
       const safeUrl = textWithinLimit(url, TEXT_LIMITS.imageUrl, '图片链接');
       const safeCaption = textWithinLimit(cap, TEXT_LIMITS.photoCaption, '照片说明');
-      if (safeUrl === null || safeCaption === null) return;
+      if (safeUrl === null || safeCaption === null) return false;
       if (live(state.gallery).length >= GALLERY_MAX) {
         toast('最多只能保存 ' + GALLERY_MAX + ' 张照片，请先删除', 'error');
-        return;
+        return false;
       }
       if (file) {
-        toast('压缩中...');
-        compressRoomImage(file).then(async dataUrl => {
+        try {
+          toast('压缩中...');
+          const dataUrl = await compressRoomImage(file);
           // 旧相册入口也必须复用统一存储策略：已加入 Worker 房间时上传到 R2，
           // 仅离线或未加入房间时才保留压缩 data URL，避免兼容入口重新撑大 KV 快照。
           const stored = await storeRoomImage(dataUrl);
-          if (!stored) return;
+          if (!stored) return false;
           state.gallery.push({ id: uid(), dataUrl: stored.dataUrl || '', url: stored.url || '', caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() });
-          save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
-        }).catch((error) => toast(error && error.message ? error.message : '图片处理失败', 'error'));
+        } catch (error) {
+          toast(error && error.message ? error.message : '图片处理失败', 'error');
+          return false;
+        }
       } else if (safeUrl) {
         state.gallery.push({ id: uid(), dataUrl: '', url: safeUrl, caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() });
-        save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
       } else {
         toast('请选择图片或填链接', 'error');
+        return false;
       }
-    });
+      save(); renderList(); renderGallerySlider(); scheduleRoomPush(); toast('已添加 ✨');
+      return true;
+    }, 'legacy-gallery-add'));
   }
 
   // ==========================================
@@ -733,7 +827,7 @@
         const who = m.author === 'a' ? partners.a : partners.b;
         const mine = m.author === me;
         html += '<div class="msg-item ' + (mine ? 'mine' : '') + '">' +
-          '<div class="msg-meta"><span class="msg-author">' + escapeHtml(who) + '</span><span class="msg-time">' + fmtTime(m.createdAt) + '</span></div>' +
+          '<div class="msg-meta"><span class="msg-author">' + escapeHtml(who) + '</span><span class="msg-time">' + fmtTime(m.createdAt) + '</span>' + (mine ? messageReceiptMarkup(m.id) : '') + '</div>' +
           '<div class="msg-text">' + escapeHtml(m.text) + '</div>' +
           (m.image ? '<img class="msg-image" src="' + escapeHtml(m.image) + '" alt="留言图片">' : '') +
           (mine ? '<button class="msg-del" data-id="' + m.id + '" title="删除">✕</button>' : '') +
@@ -744,8 +838,7 @@
     }
     $$('#msgIdentitySeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.me === me));
     // 进入留言页即视为已读，清零未读角标
-    if (state.settings.unreadMsgCount) { state.settings.unreadMsgCount = 0; save(); }
-    updateMsgBadge();
+    markMessagesRead();
   }
   function sendMessage() {
     const ta = $('#msgInput');
@@ -753,8 +846,10 @@
     if (!text) { toast('写点什么吧', 'error'); return; }
     const safeText = textWithinLimit(text, TEXT_LIMITS.message, '留言');
     if (safeText === null) return;
-    state.messages.push({ id: uid(), author: state.settings.me || 'a', text: safeText, createdAt: Date.now(), updatedAt: Date.now() });
-    save(); ta.value = ''; renderMessages(); scheduleRoomPush(); toast('已发送 💌');
+    const message = { id: uid(), author: state.settings.me || 'a', text: safeText, createdAt: Date.now(), updatedAt: Date.now() };
+    state.messages.push(message);
+    markPendingMessage(message.id);
+    save(); ta.value = ''; renderMessages(); toast(roomActive() ? '已保存，正在同步' : '已保存到本机');
   }
 
   // ==========================================
@@ -830,13 +925,15 @@
       $$('#wishIconPick .wish-icon-opt').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
     }));
-    $('#wishSubmit')?.addEventListener('click', submitWish);
+    const wishSubmit = $('#wishSubmit');
+    const submitWishOnce = () => runSubmission(wishSubmit, () => submitWish(), 'legacy-wish-submit');
+    wishSubmit?.addEventListener('click', submitWishOnce);
     const cancel = $('[data-act="modal-cancel"]');
     if (cancel) cancel.addEventListener('click', closeModal);
     const ta = $('#wishText');
     if (ta) {
       ta.focus();
-      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitWish(); });
+      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitWishOnce(); });
     }
   }
 
@@ -881,7 +978,7 @@
 
   // 留言板 / 照片管理 事件绑定（脚本加载时只绑一次）
   const msgSendBtn = $('#msgSend');
-  if (msgSendBtn) msgSendBtn.addEventListener('click', sendMessage);
+  if (msgSendBtn) msgSendBtn.addEventListener('click', () => runSubmission(msgSendBtn, () => sendMessage(), 'legacy-message-send'));
   // 系统通知开关
   const msgNotifyBtn = $('#msgNotifyToggle');
   if (msgNotifyBtn) msgNotifyBtn.addEventListener('click', () => {
@@ -1054,8 +1151,23 @@
   //   B = 浏览器系统通知（Notification API，可开关）
   // ==========================================
   function isMessagesActive() {
+    if (document.querySelector('.life-sheet-mask.show .life-chat-sheet')) return true;
     const a = document.querySelector('.nav-item.active');
     return !!(a && a.dataset.page === 'messages');
+  }
+
+  function persistUnreadMessages() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (error) { console.warn('Unread message persistence failed', error); }
+  }
+
+  function markMessagesRead() {
+    const changed = Number(state.settings.unreadMsgCount || 0) > 0;
+    state.settings.unreadMsgCount = 0;
+    if (changed) persistUnreadMessages();
+    updateMsgBadge();
+    updateTitleBadge();
+    return changed;
   }
 
   // 在留言导航项（桌面侧边栏 + 移动底部栏）上渲染未读红点
@@ -1073,33 +1185,46 @@
     });
   }
 
-  // 收到对方新留言时：A 红点+toast；B 系统通知；C 标题角标（不依赖权限，后台也能看到）
-  function notifyNewMessage(m) {
+  // 收到对方新留言时：新版界面显示可点开的站内卡片，旧界面保留 toast；
+  // 未读数只记在当前设备，系统通知与 Web Push 仍互相去重。
+  function notifyNewMessages(messages) {
+    const incoming = Array.isArray(messages) ? messages.filter(Boolean) : [];
+    if (!incoming.length) return [];
+    const viewingMessages = isMessagesActive();
+    const m = incoming[incoming.length - 1];
     const partners = state.settings.partners || { a: '孙大炮', b: '童大侠' };
     const who = (m.author === 'a' ? partners.a : partners.b) || 'TA';
-    const text = m.text || '';
-    // A：红点角标累加 + toast
-    state.settings.unreadMsgCount = (state.settings.unreadMsgCount || 0) + 1;
-    updateMsgBadge();
-    updateTitleBadge();
-    toast('💬 ' + who + '：' + (text.length > 16 ? text.slice(0, 16) + '…' : text), 'info');
+    const text = m.text || (m.image ? '发来了一张照片' : '发来一条新留言');
+    if (!viewingMessages) {
+      state.settings.unreadMsgCount = Number(state.settings.unreadMsgCount || 0) + incoming.length;
+      persistUnreadMessages();
+      updateMsgBadge();
+      updateTitleBadge();
+    }
+    window.dispatchEvent(new CustomEvent('puffer-new-messages', {
+      detail: { messages: incoming, count: incoming.length, viewingMessages }
+    }));
+    if (!document.getElementById('lifeApp') && !viewingMessages) {
+      toast('💬 ' + who + '：' + (text.length > 16 ? text.slice(0, 16) + '…' : text), 'info');
+    }
     // B：浏览器系统通知
     try {
-      if (state.settings.notifySystem !== false && 'Notification' in window) {
+      if (!viewingMessages && state.settings.notifySystem !== false && 'Notification' in window) {
         if (Notification.permission === 'granted' && localStorage.getItem('puffer-push-enabled') !== '1') {
           // Web Push already displays this item through service-worker.js.
           // Keep the in-page toast but avoid a second system notification.
-          const n = new Notification('💬 新留言 · ' + who, { body: text, tag: `puffer-messages-${m.id}` });
+          const title = incoming.length > 1 ? `💬 ${incoming.length} 条新留言 · ${who}` : `💬 新留言 · ${who}`;
+          const n = new Notification(title, { body: text, tag: `puffer-messages-${m.id}` });
           n.onclick = () => { try { window.focus(); } catch (e) {} if (document.getElementById('lifeApp')) window.dispatchEvent(new CustomEvent('puffer-life-messages')); else goPage('messages'); n.close(); };
         } else if (Notification.permission === 'default') {
           // 轮询回调里 requestPermission 无用户手势会被浏览器忽略，这里改为引导用户去开启
-          if (!state.settings._notifyHintShown) {
+          if (!document.getElementById('lifeApp') && !state.settings._notifyHintShown) {
             state.settings._notifyHintShown = true;
             save({ silent: true });
             toast('收到新留言啦～点留言板右上角 🔔 可开启系统通知', 'info');
           }
         } else if (Notification.permission === 'denied') {
-          if (!state.settings._notifyHintDeniedShown) {
+          if (!document.getElementById('lifeApp') && !state.settings._notifyHintDeniedShown) {
             state.settings._notifyHintDeniedShown = true;
             save({ silent: true });
             toast('系统通知被浏览器拒绝：点地址栏左侧图标 → 网站设置 → 通知 → 允许', 'info');
@@ -1107,6 +1232,7 @@
         }
       }
     } catch (e) { /* 系统通知不可用则忽略，仅保留 A/C 方案 */ }
+    return incoming;
   }
 
   // 标题未读角标：后台/最小化时也能看到有新留言（不依赖系统通知权限）
@@ -1126,6 +1252,7 @@
   // 4. 模态框
   // ==========================================
   function openModal({ title, body, foot, onClose }) {
+    const wasOpen = $('#modalMask').classList.contains('show');
     $('#modalTitle').textContent = title;
     $('#modalBody').innerHTML = body;
     $('#modalFoot').innerHTML = foot || '';
@@ -1133,12 +1260,15 @@
     $('#modalMask').classList.add('show');
     if (onClose) $('#modalMask').dataset.closeHook = '1';
     else delete $('#modalMask').dataset.closeHook;
+    if (!wasOpen) window.dispatchEvent(new CustomEvent('puffer-modal-open'));
   }
   function closeModal() {
+    const wasOpen = $('#modalMask').classList.contains('show');
     $('#modalMask').classList.remove('show');
     $('#modal').classList.remove('settings-modal');
     $('#modalBody').innerHTML = '';
     $('#modalFoot').innerHTML = '';
+    if (wasOpen) window.dispatchEvent(new CustomEvent('puffer-modal-close'));
   }
   $('#modalClose')?.addEventListener('click', closeModal);
   $('#modalMask')?.addEventListener('click', (e) => {
@@ -1452,7 +1582,8 @@
       `
     });
     $('#todoCancel')?.addEventListener('click', closeModal);
-    $('#todoSave')?.addEventListener('click', () => {
+    const todoSave = $('#todoSave');
+    todoSave?.addEventListener('click', () => runSubmission(todoSave, () => {
       const text = $('#todoText').value.trim();
       const p = (document.querySelector('input[name="prio"]:checked') || {}).value || 'none';
       const date = $('#todoDate').value.trim();
@@ -1472,7 +1603,8 @@
       renderTodo();
       renderCalendar();
       toast(editing ? '已更新' : '已添加');
-    });
+      return true;
+    }, 'legacy-todo-save'));
   }
 
   $('#addTodoBtn')?.addEventListener('click', () => openTodoModal());
@@ -1882,7 +2014,8 @@
       `
     });
     $('#trainCancel')?.addEventListener('click', closeModal);
-    $('#trainSave')?.addEventListener('click', () => {
+    const trainSave = $('#trainSave');
+    trainSave?.addEventListener('click', () => runSubmission(trainSave, () => {
       const muscle = $('#trainMuscle').value.trim();
       const date = $('#trainDate').value || today;
       const content = $('#trainContent').value.trim();
@@ -1906,7 +2039,8 @@
       }
       save(); closeModal(); renderFitness();
       toast(editing ? '已更新训练记录 ✏️' : '训练记录已保存 💪');
-    });
+      return true;
+    }, 'legacy-training-save'));
   }
 
   function openPlanModal() {
@@ -2011,25 +2145,92 @@
   function stopPresencePolling() { if (presenceTimer) clearInterval(presenceTimer); presenceTimer=null; roomPresence={};roomPresenceDistanceKm=null;emitPresence(); }
   async function setLocationSharing(enabled) { if (enabled) { localStorage.setItem(presenceKey(),'1'); refreshPresenceLocation(true); return true; } const context=roomContext(); localStorage.removeItem(presenceKey()); lastPresenceLocation=null; lastPresenceLocationAt=0; roomPresenceDistanceKm=null; if(roomPresence[context.person]){roomPresence[context.person].hasLocation=false;roomPresence[context.person].locationUpdatedAt=0;}emitPresence();await cleanPresence(context,false);return false; }
 
+  // 同步状态只保存在当前设备，不进入 serializeRoom()，避免两台设备互相覆盖各自的上传进度。
+  function ensureRoomSyncMeta() {
+    state.settings = state.settings || {};
+    const room = state.settings.room = state.settings.room || { backend: 'worker', url: DEFAULT_WORKER_URL, anon: '', id: '', pass: '', joined: false, lastSync: 0, lastRev: 0 };
+    if (!Number.isFinite(Number(room.pendingSyncAt))) room.pendingSyncAt = 0;
+    if (!Array.isArray(room.pendingMessageIds)) room.pendingMessageIds = [];
+    room.pendingMessageIds = [...new Set(room.pendingMessageIds.map(String).filter(Boolean))];
+    if (typeof room.lastPushError !== 'string') room.lastPushError = '';
+    return room;
+  }
+
+  function markPendingSync() {
+    const room = ensureRoomSyncMeta();
+    room.pendingSyncAt = Math.max(Date.now(), Number(room.pendingSyncAt || 0) + 1);
+    return room.pendingSyncAt;
+  }
+
+  function markPendingMessage(id) {
+    const value = String(id || '');
+    if (!value) return;
+    const room = ensureRoomSyncMeta();
+    if (!room.pendingMessageIds.includes(value)) room.pendingMessageIds.push(value);
+  }
+
+  function acknowledgeRoomSnapshot(room, generation, uploadedMessageIds) {
+    const uploaded = new Set((uploadedMessageIds || []).map(String));
+    room.pendingMessageIds = (Array.isArray(room.pendingMessageIds) ? room.pendingMessageIds : []).map(String).filter(id => !uploaded.has(id));
+    // 上传请求发出后如果又发生本地修改，只确认旧快照，不清除新一代待同步状态。
+    if (Number(room.pendingSyncAt || 0) === Number(generation || 0)) room.pendingSyncAt = 0;
+  }
+
+  function getRoomSyncStatus() {
+    const room = ensureRoomSyncMeta();
+    const joined = !!room.joined;
+    const pending = Number(room.pendingSyncAt || 0) > 0;
+    const failed = !!(syncFailed || room.lastPushError || room.lastError);
+    let key = 'local', label = '仅本机';
+    if (joined && syncBusy) { key = 'syncing'; label = '同步中'; }
+    else if (joined && failed) { key = 'failed'; label = '同步失败'; }
+    else if (joined && pending) { key = 'pending'; label = '待同步'; }
+    else if (joined) { key = 'synced'; label = '已同步'; }
+    return {
+      key, label, joined, pending, busy: joined && !!syncBusy, failed: joined && failed,
+      lastSync: Number(room.lastSync || 0), error: String(room.lastPushError || room.lastError || ''),
+      canRetry: joined && key === 'failed'
+    };
+  }
+
+  function getMessageReceipt(id) {
+    const sync = getRoomSyncStatus();
+    if (!sync.joined) return { key: 'local', label: '仅本机', icon: 'device-mobile', canRetry: false };
+    const pending = ensureRoomSyncMeta().pendingMessageIds.includes(String(id || ''));
+    if (!pending) return { key: 'synced', label: '已同步', icon: 'checks', canRetry: false };
+    if (sync.key === 'failed') return { key: 'failed', label: '同步失败', icon: 'warning-circle', canRetry: true };
+    if (sync.key === 'syncing') return { key: 'syncing', label: '同步中', icon: 'arrows-clockwise', canRetry: false };
+    return { key: 'pending', label: '待同步', icon: 'clock', canRetry: false };
+  }
+
+  function emitSyncStatus() {
+    updateSyncPill();
+    window.dispatchEvent(new CustomEvent('puffer-sync-status', { detail: getRoomSyncStatus() }));
+  }
+
+  function persistSyncMeta() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (error) { console.warn('Sync status persistence failed', error); }
+    emitSyncStatus();
+  }
+
+  function messageReceiptMarkup(id, className = 'msg-receipt') {
+    const receipt = getMessageReceipt(id);
+    const tag = receipt.canRetry ? 'button' : 'span';
+    const attrs = receipt.canRetry ? ' type="button" data-sync-retry aria-label="同步失败，点按重试"' : '';
+    return `<${tag} class="${className} is-${receipt.key}"${attrs}><i class="ph ph-${receipt.icon}"></i><span>${receipt.label}</span></${tag}>`;
+  }
+
   function updateSyncPill() {
     const code = state.settings.syncCode;
     const cloud = state.settings.cloudUrl;
     const dot = $('#syncDot');
     const text = $('#syncText');
     if (!dot || !text) return;
-    if (syncBusy && state.settings.room && state.settings.room.joined) {
-      dot.className = 'sync-dot cloud';
-      text.textContent = '同步中…';
-      return;
-    }
-    if (syncFailed && state.settings.room && state.settings.room.joined) {
-      dot.className = 'sync-dot error';
-      text.textContent = '同步失败·点重试';
-      return;
-    }
     if (state.settings.room && state.settings.room.joined) {
-      dot.className = 'sync-dot cloud';
-      text.textContent = '同步正常';
+      const sync = getRoomSyncStatus();
+      dot.className = `sync-dot ${sync.key === 'failed' ? 'error' : sync.key === 'pending' ? 'pending' : sync.key === 'syncing' ? 'busy' : 'cloud'}`;
+      text.textContent = sync.key === 'failed' ? '同步失败·点重试' : sync.key === 'syncing' ? '同步中…' : sync.key === 'pending' ? '等待同步' : '同步正常';
     } else if (cloud) {
       dot.className = 'sync-dot cloud';
       text.textContent = '云端';
@@ -2045,7 +2246,7 @@
   // 同步进行中：pill 显示「同步中…」；结束(on=false)按最新状态刷新最终态
   function setSyncPillBusy(on) {
     syncBusy = !!on;
-    updateSyncPill();
+    emitSyncStatus();
   }
 
   function describeRemoteChange(before, remoteData) {
@@ -2066,6 +2267,10 @@
       room.pass = '';
       room.anon = '';
       room.joined = false;
+      room.pendingSyncAt = 0;
+      room.pendingMessageIds = [];
+      room.lastPushError = '';
+      room.lastError = '';
     }
     if (backup.settings) {
       backup.settings.cloudUrl = '';
@@ -2122,13 +2327,15 @@
   // 二维码同步：把数据编码到 URL hash
   function openSyncModal() {
     const usage = storageUsageLabel();
+    const sync = getRoomSyncStatus();
+    const syncHero = { syncing: ['正在同步', '正在把本机更新保存到共同空间。'], pending: ['等待同步', '本机内容已保存，稍后会自动上传。'], failed: ['同步需要重试', '本机内容仍然安全，点“立即同步”即可重试。'], synced: ['同步正常', '前台会自动接收彼此的更新。'], local: ['管理共同空间', '加入同一个房间后，数据会自动同步。'] }[sync.key];
     openModal({
       title: '我们与同步',
       body: `
         <div class="settings-layout">
           <div class="settings-hero">
             <div class="settings-hero-icon"><i class="ph ph-cloud-check"></i></div>
-            <div><strong>${state.settings.room.joined && !syncFailed ? '同步正常' : '管理共同空间'}</strong><p>${state.settings.room.joined ? '前台会自动接收彼此的更新。' : '加入同一个房间后，数据会自动同步。'}</p></div>
+            <div><strong>${syncHero[0]}</strong><p>${syncHero[1]}</p></div>
           </div>
           <section class="settings-card">
             <div class="settings-card-head"><span class="settings-icon"><i class="ph ph-heart"></i></span><div><h4>你们的信息</h4><p>这些内容会显示在首页标题和问候里。</p></div></div>
@@ -2194,9 +2401,10 @@
     $('#roomUrl')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.url = e.target.value.trim() || DEFAULT_WORKER_URL; save(); } });
     $('#roomId')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.id = e.target.value.trim(); save(); } });
     $('#roomPass')?.addEventListener('input', (e) => { if (!state.settings.room.joined) { state.settings.room.pass = e.target.value.trim(); save(); } });
-    $('#roomJoin')?.addEventListener('click', () => connectRoomFromForm(false));
-    $('#roomCreate')?.addEventListener('click', () => connectRoomFromForm(true));
-    $('#roomSync')?.addEventListener('click', async () => { await pushToRoom(); updateRoomStatus(); });
+    const roomJoin = $('#roomJoin'), roomCreate = $('#roomCreate'), roomSync = $('#roomSync');
+    roomJoin?.addEventListener('click', () => runSubmission(roomJoin, () => connectRoomFromForm(false), 'room-connect'));
+    roomCreate?.addEventListener('click', () => runSubmission(roomCreate, () => connectRoomFromForm(true), 'room-connect'));
+    roomSync?.addEventListener('click', () => runSubmission(roomSync, async () => { const ok=await pushToRoom();updateRoomStatus();return ok; }, 'room-sync'));
     const pushEnableButton = $('#pushEnable');
     if (pushEnableButton && !$('#pushTest')) {
       pushEnableButton.insertAdjacentHTML('afterend', '<button class="pixel-btn" id="pushTest">发送测试通知</button>');
@@ -2239,10 +2447,12 @@
       finally { button.disabled = false; }
     });
     refreshPushStatus();
-    $('#roomLeave')?.addEventListener('click', leaveRoom);
+    const roomLeave = $('#roomLeave');
+    roomLeave?.addEventListener('click', () => runSubmission(roomLeave, leaveRoom, 'room-leave'));
     $('#wipeAll')?.addEventListener('click', () => {
       if (confirm('真的要清空所有数据吗？此操作不可恢复！')) {
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(INPUT_DRAFT_STORAGE_KEY);
         location.reload();
       }
     });
@@ -2308,8 +2518,17 @@
 
   // 同步 pill 点击
   $('#syncPill')?.addEventListener('click', () => {
-    if (syncFailed) { pushToRoom(); }   // 失败后点药丸直接重试，不必进设置
+    if (getRoomSyncStatus().canRetry) { runSubmission($('#syncPill'), pushToRoom, 'room-sync'); }   // 失败后点药丸直接重试，不必进设置
     else openSyncModal();
+  });
+  document.addEventListener('click', (event) => {
+    const retry = event.target.closest('[data-sync-retry]');
+    if (!retry) return;
+    event.preventDefault();
+    runSubmission(retry, pushToRoom, 'room-sync');
+  });
+  window.addEventListener('puffer-sync-status', () => {
+    if (!isLifeMode() && $('.nav-item.active')?.dataset.page === 'messages') renderMessages();
   });
   $('#settingsBtn')?.addEventListener('click', openSyncModal);
 
@@ -2649,7 +2868,7 @@
   function scheduleRoomPush() {
     if (!roomActive()) return;
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => { pushToRoom(); }, 1000);
+    pushTimer = setTimeout(() => { pushToRoom({ queueIfBusy: true }); }, 1000);
   }
 
   // 同步失败自动重试（指数退避），同时把错误留在 pill 上供一键重试
@@ -2689,9 +2908,11 @@
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         if (e.message !== '房间不存在' || !allowCreate) {
           r.lastError = e.message || '未知错误';
-          updateRoomStatus();
+          r.lastPushError = r.lastError;
           toast('上传未完成，内容已保存在本机，将自动重试', 'error');
           syncFailed = true;
+          persistSyncMeta();
+          updateRoomStatus();
           scheduleSyncRetry();
           return false;
         }
@@ -2699,7 +2920,11 @@
       try {
         // 合并到对方刚完成的互动后，先把连续记录写进这次快照。
         updateInteractionHistory();
+        const uploadGeneration = Number(r.pendingSyncAt || 0);
+        const pendingMessageIds = new Set((r.pendingMessageIds || []).map(String));
         const snapshot = serializeRoom();
+        const snapshotMessageIds = new Set((snapshot.messages || []).map(item => String(item.id)));
+        const uploadedPendingMessageIds = [...pendingMessageIds].filter(id => snapshotMessageIds.has(id));
         const dataHash = await snapshotHash(snapshot);
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         const resp = await roomPut(context.url, context.id, context.pass, snapshot, dataHash);
@@ -2707,8 +2932,11 @@
         r.lastRev = resp.rev;
         r.lastSync = Date.now();
         r.lastError = '';
+        r.lastPushError = '';
+        acknowledgeRoomSnapshot(r, uploadGeneration, uploadedPendingMessageIds);
         syncFailed = false; syncRetryCount = 0; clearTimeout(syncRetryTimer);
         conflictRetryCount = 0;
+        if (Number(r.pendingSyncAt || 0) > 0) pushQueued = true;
         save({ silent: true });
         updateRoomStatus();
         renderCurrent();
@@ -2724,8 +2952,12 @@
         }
         conflictRetryCount = 0;
         r.lastError = e.message || '未知错误';
+        r.lastPushError = r.lastError;
         toast('上传未完成，内容已保存在本机，将自动重试', 'error');
-        syncFailed = true; scheduleSyncRetry();
+        syncFailed = true;
+        persistSyncMeta();
+        updateRoomStatus();
+        scheduleSyncRetry();
         return false;
       }
     } finally {
@@ -2733,13 +2965,12 @@
     }
   }
 
-  // 检测来自对方的新留言：正在看留言页时不打扰（pollRoom 与 pushToRoom 共用）
+  // 检测来自对方的新留言（pollRoom 与 pushToRoom 共用）。留言页打开时由
+  // life.js 原地刷新对话，其余页面显示可点击的站内新消息卡片。
   function checkNewMessages(prevIds) {
-    if (isMessagesActive()) return;
     const me = state.settings.me || 'a';
-    live(state.messages).forEach(m => {
-      if (!prevIds.has(m.id) && m.author !== me) notifyNewMessage(m);
-    });
+    const incoming = live(state.messages).filter(m => !prevIds.has(m.id) && m.author !== me);
+    return notifyNewMessages(incoming);
   }
 
   async function pollRoomOnce() {
@@ -2752,9 +2983,9 @@
       if (session !== roomSession || !sameRoomContext(context, roomContext())) return;
       // 成功访问服务器就代表同步链路正常，即使数据版本没有变化也要清除旧错误状态
       r.lastSync = Date.now();
-      r.lastError = '';
-      syncFailed = false;
-      updateSyncPill();
+      r.lastError = r.lastPushError || '';
+      syncFailed = !!r.lastPushError;
+      emitSyncStatus();
       updateRoomStatus();
       const remoteMessages = Array.isArray(remote.data?.messages) ? remote.data.messages : [];
       const localMessages = new Map((state.messages || []).map(item => [String(item.id), item]));
@@ -2771,9 +3002,10 @@
       save({ silent: true });
       // 轮询合并后首次满足双方完成时，补发一次记录给另一台设备。
       if (interactionChanged) scheduleRoomPush();
-      checkNewMessages(prevIds);
+      const incomingMessages = checkNewMessages(prevIds);
       renderCurrent();
-      toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
+      // 新留言已有更明确、可点击的提示，避免通用同步 toast 紧接着把它覆盖。
+      if (!incomingMessages.length) toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
     } catch (e) {
       if (session !== roomSession || !sameRoomContext(context, roomContext())) return;
       syncFailed = true;
@@ -2781,7 +3013,7 @@
       const changed = r.lastError !== message;
       r.lastError = message;
       updateRoomStatus();
-      updateSyncPill();
+      persistSyncMeta();
       if (changed) toast('暂时无法检查更新，正在后台重试', 'error');
       // 轮询本身会继续重试，不要把拉取失败误当成写入失败再触发上传
     }
@@ -2804,8 +3036,11 @@
   async function pushToRoom(options = {}) {
     if (!roomActive()) return false;
     if (pushInFlight) {
-      pushQueued = true;
-      pushQueuedAllowCreate = pushQueuedAllowCreate || !!options.allowCreate;
+      // 自动保存才允许排队；重复点击“立即同步”直接复用当前请求，不再多上传一轮。
+      if (options.queueIfBusy) {
+        pushQueued = true;
+        pushQueuedAllowCreate = pushQueuedAllowCreate || !!options.allowCreate;
+      }
       return pushInFlight;
     }
     const run = (async () => {
@@ -3096,6 +3331,13 @@
     open(page) { goPage(page); },
     getHoroscopes() { return ['gemini','libra'].map(sign => ({ sign, meta: HOROS[sign], data: dailyHoroscope(sign) })); },
     getDailyMusic() { const part = currentMusicDaypart(), neteaseSource = '\u4f60\u4eec\u7684\u7f51\u6613\u4e91\u6b4c\u5355', appleSources = ['\u4f60\u4eec\u7684 Apple Music \u6b4c\u5355', '\u76f8\u4f3c\u63a8\u8350']; return { netease: getMusicSlotSong(part, neteaseSource) || pickMusicFor(part, new Set(), neteaseSource)[0] || null, apple: getMusicSlotSong(part, appleSources) || pickMusicFor(part, new Set(), appleSources)[0] || null }; },
+    getSyncStatus() { return { ...getRoomSyncStatus() }; },
+    notify(message, type = 'success') { toast(String(message || ''), type); return true; },
+    markMessagesRead() { return markMessagesRead(); },
+    getMessageReceipt(id) { return { ...getMessageReceipt(id) }; },
+    getInputDraft(scope) { return getInputDraft(scope); },
+    setInputDraft(scope, fields) { return setInputDraft(scope, fields); },
+    clearInputDraft(scope) { return clearInputDraft(scope); },
     getPresence() { return presenceUi(); },
     refreshPresence() { refreshPresenceLocation(true); return true; },
     setLocationSharing(enabled) { return setLocationSharing(!!enabled); },
@@ -3137,9 +3379,9 @@
     exportBackup() { exportJSON(); return true; },
     importBackup() { importJSON(); return true; },
     exportTodos() { exportTodosToCalendar(live(state.todos).filter(t=>t.date),'情侣工作台待办'); return true; },
-    addMessage(text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (!value) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    addMessage(text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (!value) return false; const message={ id: uid(), author: state.settings.me || 'a', text: value, createdAt: Date.now(), updatedAt: Date.now() }; state.messages.push(message); markPendingMessage(message.id); save(); return true; },
     lightWish(id) { const wish = state.wishes.find(x => x.id === id && !x.deleted); if (!wish || wish.lit) return false; wish.lit = true; wish.litAt = Date.now(); wish.updatedAt = Date.now(); save(); return true; },
-    async addMessageFile(file, text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (value === null || (!file && !value)) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; state.messages.push({ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
+    async addMessageFile(file, text) { const value = textWithinLimit(text, TEXT_LIMITS.message, '留言'); if (value === null || (!file && !value)) return false; const imageData = file ? await compressRoomImage(file) : ''; const stored = imageData ? await storeRoomImage(imageData) : { dataUrl: '', url: '' }; if (!stored) return false; const message={ id: uid(), author: state.settings.me || 'a', text: value, image: stored.dataUrl || stored.url, createdAt: Date.now(), updatedAt: Date.now() }; state.messages.push(message); markPendingMessage(message.id); save(); return true; },
     async addGalleryFile(file, caption) { const safeCaption = textWithinLimit(caption, TEXT_LIMITS.photoCaption, '照片说明'); if (!file || safeCaption === null || live(state.gallery).length >= GALLERY_MAX) return false; const dataUrl = await compressRoomImage(file); const stored = await storeRoomImage(dataUrl); if (!stored) return false; state.gallery.push({ id: uid(), author: state.settings.me || 'a', dataUrl: stored.dataUrl, url: stored.url, caption: safeCaption, createdAt: Date.now(), updatedAt: Date.now() }); save(); return true; },
     async addTravel(input, file) { const value=input||{}, place=textWithinLimit(value.place, TEXT_LIMITS.travelPlace, '地点'), note=textWithinLimit(value.note, TEXT_LIMITS.travelNote, '旅行记录'); if(!place||note===null)return false; let stored={dataUrl:'',url:''}; if(file){const dataUrl=await compressRoomImage(file);stored=await storeRoomImage(dataUrl);if(!stored)return false;} const lat=Number(value.lat),lng=Number(value.lng),status=value.status==='wish'?'wish':'visited'; state.travels.push({id:uid(),author:state.settings.me||'a',place,date:String(value.date||todayKey()),note,status,lat:Number.isFinite(lat)?Math.max(-90,Math.min(90,lat)):null,lng:Number.isFinite(lng)?Math.max(-180,Math.min(180,lng)):null,dataUrl:stored.dataUrl||'',url:stored.url||'',createdAt:Date.now(),updatedAt:Date.now()});save();return true; },
     drawFortuneNative() { const me = state.settings.me || 'a', date = todayKey(), sign = FORTUNE_SIGNS[Math.floor(Math.random() * FORTUNE_SIGNS.length)]; if (!state.fortune || state.fortune.date !== date) state.fortune = { date, by: { a: null, b: null } }; state.fortune.by[me] = { level: sign.level, cls: sign.cls, text: sign.text, tip: sign.tip, ts: Date.now() }; save(); return state.fortune.by[me]; }

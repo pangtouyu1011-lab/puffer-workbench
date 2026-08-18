@@ -7,6 +7,14 @@
   const state = () => window.PufferLife?.getState?.() || null;
   const slot = name => root.querySelector(`[data-life-page="${name}"]`);
   const when = value => { const d = new Date(value || Date.now()); return Number.isFinite(d.getTime()) ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : '刚刚'; };
+  function syncStatus() { return window.PufferLife?.getSyncStatus?.() || { key:'local', label:'仅本机', joined:false }; }
+  function messageReceiptMarkup(id) {
+    const receipt=window.PufferLife?.getMessageReceipt?.(id);
+    if(!receipt)return '';
+    const tag=receipt.canRetry?'button':'span',retry=receipt.canRetry?' type="button" data-sync-retry aria-label="同步失败，点按重试"':'';
+    return `<${tag} class="life-message-receipt is-${esc(receipt.key)}" data-message-receipt="${esc(id)}"${retry}>${icon(receipt.icon||'clock')}<span>${esc(receipt.label)}</span></${tag}>`;
+  }
+  function messageMetaMarkup(message, label) { const me=state()?.settings?.me||'a',receipt=message.author===me?messageReceiptMarkup(message.id):''; return `<footer class="life-message-meta"><time>${esc(label)}</time>${receipt}</footer>`; }
   const sameDay = value => dayKey(new Date(value || 0)) === dayKey();
   function takeReusableMedia(container) {
     const pool = new Map();
@@ -40,29 +48,379 @@
   root.innerHTML = `<section class="life-page active" data-life-page="today"></section><section class="life-page" data-life-page="days"></section><section class="life-page" data-life-page="things"></section><section class="life-page" data-life-page="us"></section><nav class="life-nav">${Object.keys(navMeta).map(navButton).join('')}</nav>`;
   document.body.append(root);
   const mask = document.createElement('div'); mask.className = 'life-sheet-mask'; document.body.append(mask);
-  mask.addEventListener('click', event => { const kind=event.target.closest('[data-travel-kind]'); if(!kind)return; const input=mask.querySelector('#lifeTravelStatus'); if(input)input.value=kind.dataset.travelKind; mask.querySelectorAll('[data-travel-kind]').forEach(button=>button.classList.toggle('active',button===kind)); });
+  const liveMessageNotice = document.createElement('button');
+  liveMessageNotice.type = 'button';
+  liveMessageNotice.id = 'lifeLiveMessageNotice';
+  liveMessageNotice.className = 'life-live-message-notice';
+  liveMessageNotice.setAttribute('aria-live', 'polite');
+  liveMessageNotice.setAttribute('aria-atomic', 'true');
+  liveMessageNotice.hidden = true;
+  liveMessageNotice.innerHTML = `<span class="life-live-message-icon">${icon('chat-circle-text')}</span><span class="life-live-message-copy"><small></small><b></b></span><span class="life-live-message-action">查看</span>`;
+  document.body.append(liveMessageNotice);
+  mask.addEventListener('click', event => { const kind=event.target.closest('[data-travel-kind]'); if(!kind)return; const input=mask.querySelector('#lifeTravelStatus'); if(input){input.value=kind.dataset.travelKind;input.dispatchEvent(new Event('change',{bubbles:true}));} mask.querySelectorAll('[data-travel-kind]').forEach(button=>button.classList.toggle('active',button===kind)); });
   let calendarCursor = new Date();
   let photoCarouselTimer = null;
   let companionSheetTimer = null;
   let activeLifeTab = 'today';
+  const tabScrollPositions = { today:0, days:0, things:0, us:0 };
   let tabTransitionTimer = null;
   let hydrationAudience = 'me';
   let tabTransitionToken = 0;
+  let activeSheetDraft = null;
+  let liveMessageNoticeTimer = null;
+  let overlayScrollLock = null;
+  let overlayHistoryKind = '';
+  let overlayReturnFocus = null;
+  let closingOverlayFromHistory = false;
+
+  function finishActiveSheetDraft(save = true) {
+    const draft = activeSheetDraft;
+    activeSheetDraft = null;
+    if (!draft) return;
+    clearTimeout(draft.timer);
+    clearInterval(draft.interval);
+    if (save) draft.flush();
+  }
+
+  function syncRestoredDraftControls() {
+    const travelStatus = mask.querySelector('#lifeTravelStatus')?.value;
+    if (travelStatus) mask.querySelectorAll('[data-travel-kind]').forEach(button => button.classList.toggle('active', button.dataset.travelKind === travelStatus));
+    const hydrationMl = mask.querySelector('#lifeHydrationMl')?.value;
+    if (hydrationMl) mask.querySelectorAll('[data-hydration-ml]').forEach(button => button.classList.toggle('active', button.dataset.hydrationMl === hydrationMl));
+    const mood = mask.querySelector('#lifeMoodValue')?.value;
+    if (mood) applyMoodSelection(mood);
+  }
+
+  function bindSheetDraft() {
+    const form = mask.querySelector('[data-life-draft]');
+    if (!form) return;
+    const scope = form.dataset.lifeDraft;
+    const fields = [...form.querySelectorAll('[data-life-draft-field]')];
+    if (!scope || !fields.length) return;
+    const saved = window.PufferLife?.getInputDraft?.(scope)?.fields || {};
+    fields.forEach(field => {
+      const name = field.dataset.lifeDraftField;
+      if (!Object.prototype.hasOwnProperty.call(saved, name)) return;
+      if (field.type === 'checkbox' || field.type === 'radio') field.checked = saved[name] === '1';
+      else field.value = saved[name];
+    });
+    syncRestoredDraftControls();
+    const readFields = () => Object.fromEntries(fields.map(field => [
+      field.dataset.lifeDraftField,
+      field.type === 'checkbox' || field.type === 'radio' ? (field.checked ? '1' : '0') : field.value
+    ]));
+    const draft = {
+      scope,
+      timer: null,
+      interval: null,
+      lastSerialized: JSON.stringify(readFields()),
+      flush() {
+        const values = readFields();
+        const serialized = JSON.stringify(values);
+        if (serialized === draft.lastSerialized) return;
+        draft.lastSerialized = serialized;
+        window.PufferLife?.setInputDraft?.(scope, values);
+      }
+    };
+    const schedule = () => {
+      clearTimeout(draft.timer);
+      draft.timer = setTimeout(() => draft.flush(), 180);
+    };
+    fields.forEach(field => {
+      field.addEventListener('input', schedule);
+      field.addEventListener('change', schedule);
+    });
+    draft.interval = setInterval(() => draft.flush(), 1000);
+    activeSheetDraft = draft;
+  }
+
+  function clearSheetDraft(button) {
+    const form = button?.closest('[data-life-draft]');
+    const scope = form?.dataset.lifeDraft;
+    if (!scope) return;
+    if (activeSheetDraft?.scope === scope) finishActiveSheetDraft(false);
+    window.PufferLife?.clearInputDraft?.(scope);
+  }
+
+  function lockPageScroll() {
+    if (overlayScrollLock) return;
+    const body = document.body;
+    overlayScrollLock = { y:window.scrollY, top:body.style.top };
+    body.style.top = `-${overlayScrollLock.y}px`;
+    body.classList.add('life-sheet-open');
+    document.documentElement.classList.add('life-sheet-open');
+  }
+
+  function unlockPageScroll() {
+    const lock = overlayScrollLock;
+    if (!lock) return;
+    overlayScrollLock = null;
+    document.body.classList.remove('life-sheet-open');
+    document.documentElement.classList.remove('life-sheet-open');
+    document.body.style.top = lock.top;
+    window.scrollTo(0, lock.y);
+  }
+
+  function beginOverlaySession(kind, focusTarget) {
+    if (!overlayHistoryKind) {
+      overlayReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      lockPageScroll();
+      const previous = history.state && typeof history.state === 'object' ? history.state : {};
+      try {
+        if (previous.pufferOverlay !== kind) history.pushState({ ...previous, pufferOverlay:kind }, '', location.href);
+      } catch (_) {}
+    }
+    overlayHistoryKind = kind;
+    requestAnimationFrame(() => {
+      try { focusTarget?.focus?.({ preventScroll:true }); } catch (_) { focusTarget?.focus?.(); }
+    });
+  }
+
+  function finishOverlaySession(kind, fromHistory = false) {
+    if (overlayHistoryKind !== kind) return;
+    const focusTarget = overlayReturnFocus;
+    const ownsHistoryEntry = history.state?.pufferOverlay === kind;
+    overlayHistoryKind = '';
+    overlayReturnFocus = null;
+    unlockPageScroll();
+    requestAnimationFrame(() => {
+      if (!focusTarget?.isConnected) return;
+      try { focusTarget.focus({ preventScroll:true }); } catch (_) { focusTarget.focus(); }
+    });
+    if (!fromHistory && ownsHistoryEntry) history.back();
+  }
 
   function openSheet(html, modifier = '') {
+    const wasOpen = mask.classList.contains('show');
+    finishActiveSheetDraft(true);
     mask.innerHTML = `<section class="life-sheet ${esc(modifier)}" role="dialog" aria-modal="true"><div class="life-sheet-top"><div class="life-sheet-handle"></div><button class="life-sheet-close" data-sheet-close aria-label="关闭">×</button></div><div class="life-sheet-body">${html}</div></section>`;
     mask.classList.add('show');
+    if (!wasOpen) beginOverlaySession('life-sheet', mask.querySelector('.life-sheet-close'));
+    bindSheetDraft();
+    bindLifeFormFeedback();
     const sheet = mask.querySelector('.life-sheet'), top = mask.querySelector('.life-sheet-top');
     let start = 0, offset = 0, dragging = false;
     top.addEventListener('pointerdown', e => { dragging = true; start = e.clientY; offset = 0; top.setPointerCapture?.(e.pointerId); sheet.style.transition = 'none'; });
     top.addEventListener('pointermove', e => { if (!dragging) return; offset = Math.max(0, e.clientY - start); sheet.style.transform = `translateY(${offset}px)`; });
     top.addEventListener('pointerup', () => { if (!dragging) return; dragging = false; sheet.style.transition = 'transform .22s ease'; if (offset > 112) { sheet.style.transform = 'translateY(100%)'; setTimeout(closeSheet, 180); } else sheet.style.transform = 'translateY(0)'; });
   }
-  function closeSheet() { clearTimeout(companionSheetTimer); companionSheetTimer=null; const preview = mask.querySelector('#lifeMessageImagePreview'); if (preview?.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl); mask.classList.remove('show'); }
+  function closeSheet(fromHistory = false) {
+    const wasOpen = mask.classList.contains('show');
+    finishActiveSheetDraft(true);
+    clearTimeout(companionSheetTimer);
+    companionSheetTimer=null;
+    const preview = mask.querySelector('#lifeMessageImagePreview');
+    if (preview?.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    mask.classList.remove('show');
+    if (wasOpen) finishOverlaySession('life-sheet', fromHistory);
+    setTimeout(maybeOfferReview, 220);
+  }
+  function hideLiveMessageNotice(immediate = false) {
+    clearTimeout(liveMessageNoticeTimer);
+    liveMessageNoticeTimer = null;
+    liveMessageNotice.classList.remove('show');
+    if (immediate) liveMessageNotice.hidden = true;
+    else setTimeout(() => { if (!liveMessageNotice.classList.contains('show')) { liveMessageNotice.hidden = true; maybeOfferReview(); } }, 180);
+  }
+  function messageHistoryMarkup(s) {
+    const me=s.settings?.me||'a',names=s.settings?.partners||{},chats=live(s.messages).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)).slice(-40);
+    return chats.map(m=>`<article class="life-chat ${m.author===me?'mine':''}" data-life-message-id="${esc(m.id)}">${m.image?`<img class="life-chat-image" loading="lazy" decoding="async" src="${esc(m.image)}" alt="留言图片">`:''}<p>${esc(m.text)||'发来了一张照片'}</p>${messageMetaMarkup(m,`${m.author===me?(names[me]||'我'):(names[m.author]||'TA')} · ${when(m.createdAt)}`)}</article>`).join('')||'<div class="life-chat-empty">还没有对话，先留一句给 TA 吧。</div>';
+  }
+  function refreshOpenMessageSheet(forceScroll = false) {
+    const panel=mask.querySelector('.life-chat-sheet'),history=panel?.querySelector('.life-message-history'),s=state();
+    if(!mask.classList.contains('show')||!panel||!history||!s)return false;
+    const nearBottom=history.scrollHeight-history.scrollTop-history.clientHeight<72;
+    history.innerHTML=messageHistoryMarkup(s);
+    if(forceScroll||nearBottom)requestAnimationFrame(()=>{history.scrollTop=history.scrollHeight;});
+    return true;
+  }
+  function showLiveMessageNotice(detail) {
+    const messages=Array.isArray(detail?.messages)?detail.messages.filter(Boolean):[];
+    if(!messages.length)return;
+    if(mask.classList.contains('show')&&mask.querySelector('.life-chat-sheet')){
+      hideLiveMessageNotice(true);
+      window.PufferLife?.markMessagesRead?.();
+      refreshOpenMessageSheet(true);
+      return;
+    }
+    const s=state(),last=messages[messages.length-1],names=s?.settings?.partners||{},who=names[last.author]||'TA',preview=String(last.text||'发来了一张照片').trim();
+    liveMessageNotice.querySelector('small').textContent=messages.length>1?`${who} 发来 ${messages.length} 条新留言`:`${who} 发来一条新留言`;
+    liveMessageNotice.querySelector('b').textContent=preview;
+    liveMessageNotice.setAttribute('aria-label',`${who} 的新留言：${preview}，点按查看`);
+    liveMessageNotice.hidden=false;
+    requestAnimationFrame(()=>liveMessageNotice.classList.add('show'));
+    clearTimeout(liveMessageNoticeTimer);
+    liveMessageNoticeTimer=setTimeout(()=>hideLiveMessageNotice(),5600);
+  }
+  let lifeFeedbackSequence = 0;
+  function lifeFormScope(button) { return button?.closest('[data-life-draft]') || button?.closest('.life-chat-sheet,.life-travel-compose') || mask.querySelector('.life-sheet-body'); }
+  function removeLifeFieldError(field) {
+    if (!field) return;
+    const errorId = field.dataset.lifeErrorId;
+    if (errorId) document.getElementById(errorId)?.remove();
+    delete field.dataset.lifeErrorId;
+    field.classList.remove('is-invalid');
+    field.removeAttribute('aria-invalid');
+    field.removeAttribute('aria-errormessage');
+  }
+  function clearLifeFormFeedback(button) {
+    const form = lifeFormScope(button);
+    form?.querySelectorAll('.is-invalid').forEach(removeLifeFieldError);
+    form?.querySelectorAll('.life-field-error').forEach(node => node.remove());
+    const feedback = form?.querySelector('.life-form-feedback');
+    if (feedback) { feedback.hidden = true; feedback.textContent = ''; feedback.className = 'life-form-feedback'; }
+  }
+  function lifeFormFeedbackNode(button) {
+    const form = lifeFormScope(button);
+    if (!form) return null;
+    let feedback = form.querySelector('.life-form-feedback');
+    if (!feedback) {
+      feedback = document.createElement('p');
+      feedback.className = 'life-form-feedback';
+      feedback.hidden = true;
+      const anchor = button?.closest('.life-message-actions') || button;
+      if (anchor) anchor.insertAdjacentElement('beforebegin', feedback);
+      else form.append(feedback);
+    }
+    return feedback;
+  }
+  function showLifeFormFeedback(button, message, type = 'error') {
+    const feedback = lifeFormFeedbackNode(button);
+    if (!feedback) return;
+    feedback.className = `life-form-feedback is-${type}`;
+    feedback.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    feedback.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+    feedback.textContent = message;
+    feedback.hidden = false;
+  }
+  function showLifeFieldError(button, field, message, focusTarget = field) {
+    if (!field) { showLifeFormFeedback(button, message); return false; }
+    removeLifeFieldError(field);
+    const error = document.createElement('p');
+    const errorId = `life-field-error-${++lifeFeedbackSequence}`;
+    error.id = errorId;
+    error.className = 'life-field-error';
+    error.setAttribute('role', 'alert');
+    error.textContent = message;
+    field.dataset.lifeErrorId = errorId;
+    field.classList.add('is-invalid');
+    field.setAttribute('aria-invalid', 'true');
+    field.setAttribute('aria-errormessage', errorId);
+    field.insertAdjacentElement('afterend', error);
+    requestAnimationFrame(() => {
+      focusTarget?.focus?.({ preventScroll: true });
+      focusTarget?.scrollIntoView?.({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+    return false;
+  }
+  function bindLifeFormFeedback() {
+    mask.querySelectorAll('textarea[maxlength],input[maxlength]').forEach(field => {
+      if (field.type === 'hidden') return;
+      const counter = document.createElement('span');
+      counter.className = 'life-field-counter';
+      const update = () => {
+        const length = [...String(field.value || '')].length;
+        counter.textContent = `${length}/${field.maxLength}`;
+        counter.classList.toggle('is-near-limit', length >= field.maxLength * .8);
+      };
+      field.insertAdjacentElement('afterend', counter);
+      field.addEventListener('input', update);
+      update();
+    });
+    mask.querySelectorAll('input,textarea,select').forEach(field => {
+      const clear = () => {
+        removeLifeFieldError(field);
+        const feedback = lifeFormScope(field)?.querySelector('.life-form-feedback');
+        if (feedback?.classList.contains('is-error')) { feedback.hidden = true; feedback.textContent = ''; }
+      };
+      field.addEventListener('input', clear);
+      field.addEventListener('change', clear);
+    });
+  }
+  function validateLifeSubmission(button) {
+    clearLifeFormFeedback(button);
+    const scope = lifeFormScope(button);
+    const tooLong = [...(scope?.querySelectorAll('textarea[maxlength],input[maxlength]') || [])].find(field => [...String(field.value || '')].length > field.maxLength);
+    if (tooLong) return showLifeFieldError(button, tooLong, `最多可以填写 ${tooLong.maxLength} 个字`);
+    if (button.matches('[data-save-travel]')) {
+      const field = mask.querySelector('#lifeTravelPlace');
+      if (!field?.value.trim()) return showLifeFieldError(button, field, '请先填写这次旅行的地点');
+    }
+    if (button.matches('[data-save-hydration]')) {
+      const field = mask.querySelector('#lifeHydrationMl'), amount = Number(field?.value);
+      if (!field?.value || !Number.isFinite(amount) || amount < 1 || amount > 3000) return showLifeFieldError(button, field, '请输入 1–3000 ml 的饮用量');
+    }
+    if (button.matches('[data-save-mood]')) {
+      const field = mask.querySelector('#lifeMoodValue');
+      if (!field?.value) return showLifeFieldError(button, field, '请先选择现在的心情', mask.querySelector('[data-life-mood]'));
+    }
+    if (button.matches('[data-save-todo]')) {
+      const field = mask.querySelector('#lifeTodoText');
+      if (!field?.value.trim()) return showLifeFieldError(button, field, '请先写下要完成的事情');
+    }
+    if (button.matches('[data-save-training]')) {
+      const field = mask.querySelector('#lifeTrainContent');
+      if (!field?.value.trim()) return showLifeFieldError(button, field, '请先填写今天的训练内容');
+    }
+    if (button.matches('[data-save-message]')) {
+      const field = mask.querySelector('#lifeMessageText'), file = mask.querySelector('#lifeMessageImage')?.files?.[0];
+      if (!field?.value.trim() && !file) return showLifeFieldError(button, field, '写一句话，或者选择一张照片再发送');
+    }
+    if (button.matches('[data-save-photo]')) {
+      const field = mask.querySelector('#lifePhotoFile');
+      if (!field?.files?.[0]) return showLifeFieldError(button, field, '请先选择一张要保存的照片');
+      if (live(state()?.gallery).length >= 5) return showLifeFieldError(button, field, '共同相册最多保留 5 张照片，请先整理旧照片');
+    }
+    if (button.matches('[data-save-wish]')) {
+      const field = mask.querySelector('#lifeWishText');
+      if (!field?.value.trim()) return showLifeFieldError(button, field, '请先写下一个小心愿');
+    }
+    return true;
+  }
+  function notifyLifeSaved(label) {
+    const message = syncStatus().joined ? `${label}已保存，正在同步` : `${label}已保存到本机`;
+    window.PufferLife?.notify?.(message, 'success');
+  }
+  function lifeSubmissionError(error) {
+    const message = String(error?.message || '').trim();
+    return message && message !== 'Failed to fetch' ? message : '没有保存成功，请检查网络后重试';
+  }
+  const lifeSubmissionLocks = new Set();
+  const lifeSubmitSelector = '[data-save-travel],[data-save-hydration],[data-save-mood],[data-save-todo],[data-save-training],[data-save-message],[data-save-photo],[data-save-wish],[data-life-draw-fortune]';
+  async function runLifeSubmission(button, task) {
+    const key='life-sheet-submit';
+    if(!button||lifeSubmissionLocks.has(key)||button.dataset.submitting==='1')return false;
+    if(!validateLifeSubmission(button))return false;
+    lifeSubmissionLocks.add(key);
+    button.dataset.submitting='1';
+    button.disabled=true;
+    button.setAttribute('aria-busy','true');
+    button.classList.add('is-submitting');
+    showLifeFormFeedback(button, button.matches('[data-save-travel],[data-save-message],[data-save-photo]')?'正在处理图片并保存，请稍候…':'正在保存…', 'info');
+    try{const ok=await task();if(!ok&&button.isConnected)showLifeFormFeedback(button,'没有保存成功，请检查填写内容后重试');return ok;}
+    catch(error){const message=lifeSubmissionError(error);showLifeFormFeedback(button,message);window.PufferLife?.notify?.(message,'error');return false;}
+    finally{lifeSubmissionLocks.delete(key);delete button.dataset.submitting;button.disabled=false;button.removeAttribute('aria-busy');button.classList.remove('is-submitting');}
+  }
+  async function handleLifeSubmission(button) {
+    return runLifeSubmission(button,async()=>{
+      if(button.matches('[data-save-travel]')){const data={place:mask.querySelector('#lifeTravelPlace')?.value,date:mask.querySelector('#lifeTravelDate')?.value,status:mask.querySelector('#lifeTravelStatus')?.value,note:mask.querySelector('#lifeTravelNote')?.value,lat:mask.querySelector('#lifeTravelLat')?.value,lng:mask.querySelector('#lifeTravelLng')?.value},file=mask.querySelector('#lifeTravelPhoto')?.files?.[0],ok=await window.PufferLife?.addTravel?.(data,file);if(ok){clearSheetDraft(button);travelSheet();notifyLifeSaved('旅行记录');}return !!ok;}
+      if(button.matches('[data-save-hydration]')){const ok=window.PufferLife?.addHydration?.(button.dataset.saveHydration,mask.querySelector('#lifeHydrationMl')?.value);if(ok){clearSheetDraft(button);closeSheet();}return !!ok;}
+      if(button.matches('[data-save-mood]')){const ok=window.PufferLife?.setDailyStatus?.(state().settings?.me||'a',mask.querySelector('#lifeMoodValue')?.value||mask.querySelector('[data-life-mood].active')?.dataset.lifeMood||'',mask.querySelector('#lifeMoodNote')?.value||'');if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('心情');}return !!ok;}
+      if(button.matches('[data-save-todo]')){const data={text:mask.querySelector('#lifeTodoText')?.value,date:mask.querySelector('#lifeTodoDate')?.value,priority:mask.querySelector('#lifeTodoPriority')?.value},ok=button.dataset.saveTodo?window.PufferLife?.updateTodo?.(button.dataset.saveTodo,data):window.PufferLife?.addTodo?.(data);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('待办');}return !!ok;}
+      if(button.matches('[data-save-training]')){const data={content:mask.querySelector('#lifeTrainContent')?.value,date:mask.querySelector('#lifeTrainDate')?.value,muscle:mask.querySelector('#lifeTrainMuscle')?.value,duration:mask.querySelector('#lifeTrainDuration')?.value,note:mask.querySelector('#lifeTrainNote')?.value},ok=button.dataset.saveTraining?window.PufferLife?.updateTraining?.(button.dataset.saveTraining,data):window.PufferLife?.addTraining?.(data);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('训练记录');}return !!ok;}
+      if(button.matches('[data-save-message]')){const file=mask.querySelector('#lifeMessageImage')?.files?.[0],text=mask.querySelector('#lifeMessageText')?.value||'',ok=file?await window.PufferLife?.addMessageFile?.(file,text):window.PufferLife?.addMessage?.(text);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('留言');}return !!ok;}
+      if(button.matches('[data-save-photo]')){const file=mask.querySelector('#lifePhotoFile')?.files?.[0],ok=file&&await window.PufferLife?.addGalleryFile?.(file,mask.querySelector('#lifePhotoCaption')?.value);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('照片');}return !!ok;}
+      if(button.matches('[data-save-wish]')){const ok=window.PufferLife?.addWish?.({text:mask.querySelector('#lifeWishText')?.value,icon:'✨'});if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('心愿');}return !!ok;}
+      if(button.matches('[data-life-draw-fortune]')){const ok=window.PufferLife?.drawFortuneNative?.();if(ok)fortuneSheet();return !!ok;}
+      return false;
+    });
+  }
   function selectTab(page) {
     const target = slot(page);
     if (!target || !navMeta[page]) return;
+    const previousPage = activeLifeTab;
     const changed = activeLifeTab !== page;
+    if (changed) tabScrollPositions[previousPage] = window.scrollY;
     activeLifeTab = page;
     const transitionToken = ++tabTransitionToken;
     clearTimeout(tabTransitionTimer);
@@ -76,7 +434,8 @@
       node.classList.toggle('active', active);
       node.innerHTML = `${active ? `<img class="life-nav-pet" src="assets/${pagePet(tabPage)}" alt="">` : icon(navMeta[tabPage].icon)}<span>${navMeta[tabPage].label}</span>`;
     });
-    if (changed && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (changed && !reduceMotion) {
       target.classList.add('life-page-entering');
       tabTransitionTimer = setTimeout(() => {
         if (transitionToken === tabTransitionToken) target.classList.remove('life-page-entering');
@@ -85,7 +444,12 @@
     }
     renderCompanionFloat(state());
     renderCompanionNudge(state());
-    window.scrollTo(0, 0);
+    if (page === 'today') maybeOfferReview();
+    const targetScroll = changed ? tabScrollPositions[page] || 0 : 0;
+    requestAnimationFrame(() => {
+      if (!changed && !reduceMotion) window.scrollTo({ top:0, left:0, behavior:'smooth' });
+      else window.scrollTo(0, targetScroll);
+    });
   }
   function weatherInfo(s) { const w = s.weather || {}, code = w.code, seed = Number(`${new Date().getFullYear()}${new Date().getMonth()+1}${new Date().getDate()}`) + (Number(code) || 0), pick = list => list[Math.abs(seed) % list.length]; if ([0,1].includes(code)) return { label:'今天晴朗', temp:`${w.temp ?? '--'}° · 晴`, copy:pick(['天气不错，<br>适合一起出门走走。','阳光正好，<br>把散步留给傍晚。','晒晒太阳，<br>今天会是好日子。']), pet:'weather-sunny-pet.webp' }; if ([71,73,75,77,85,86].includes(code)) return { label:'今天有雪', temp:`${w.temp ?? '--'}° · 雪`, copy:pick(['注意保暖，<br>回家一起喝杯热的。','雪天慢一点，<br>把手揣暖再出门。','路面会湿滑，<br>今天走慢一点。']), pet:'weather-snow-pet.webp' }; if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return { label:'今天有雨', temp:`${w.temp ?? '--'}° · 雨`, copy:pick(['记得带伞，<br>回来一起喝杯热的。','雨声很轻，<br>路上慢一点走。','下雨天也好，<br>适合早点回家。']), pet:'weather-rain-pet.webp' }; return { label:'今天多云', temp:`${w.temp ?? '--'}° · 阴`, copy:pick(['云会慢慢散开，<br>傍晚适合一起走走。','阴天也温柔，<br>一起慢慢走回家。','风有一点凉，<br>出门记得带外套。']), pet:'weather-cloud-pet.webp' }; }
   // 新陪伴形象仅由既有状态推导；拖动位置只保存在当前设备，不进入房间同步。
@@ -136,14 +500,25 @@
     const todaySlot=slot('today'),presence=presenceLabel(window.PufferLife?.getPresence?.()?.partner),partnerHeader=todaySlot.querySelector('.life-partner-today .life-section-head');if(partnerHeader){partnerHeader.querySelector('.life-label')?.remove();partnerHeader.insertAdjacentHTML('beforeend',`<button class="life-presence-pill ${presence.cls}" data-life-open="presence"><span></span><b>${esc(presence.text)}</b></button>`);}const fortuneCard=todaySlot.querySelector('.life-partner-summary-grid article:nth-child(2)');if(fortuneCard){const trigger=document.createElement('button'),brief=fortune?`${fortune.level}签 · ${String(fortune.text||'').split(/[，,。]/)[0]}`:'还没有抽签';trigger.type='button';trigger.className='life-partner-fortune';trigger.dataset.lifeOpen='fortune';trigger.setAttribute('aria-label','查看今日抽签');trigger.innerHTML=fortuneCard.innerHTML;trigger.querySelector('b').textContent=brief;trigger.insertAdjacentHTML('beforeend',icon('caret-right'));fortuneCard.replaceWith(trigger);}const photoHero=todaySlot.querySelector('.life-photo-hero'),photos=live(s.gallery).filter(x=>x.dataUrl||x.url).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,8);if(photoHero&&photos.length>1){let current=0,startX=0;photoHero.innerHTML=`<div class="life-photo-track">${photos.map(item=>`<img loading="lazy" decoding="async" src="${esc(item.dataUrl||item.url)}" alt="共同照片">`).join('')}</div><span class="life-photo-count">${photos.length} 张照片</span><div class="life-photo-shade"><b></b><span></span></div><div class="life-photo-dots">${photos.map((_,i)=>`<i class="${i===0?'active':''}"></i>`).join('')}</div>`;const track=photoHero.querySelector('.life-photo-track'),title=photoHero.querySelector('.life-photo-shade b'),time=photoHero.querySelector('.life-photo-shade span'),dots=[...photoHero.querySelectorAll('.life-photo-dots i')],show=index=>{current=(index+photos.length)%photos.length;track.style.transform=`translateX(-${current*100}%)`;title.textContent=photos[current].caption||'你们保存下来的共同瞬间';time.textContent=when(photos[current].createdAt);dots.forEach((dot,i)=>dot.classList.toggle('active',i===current));};show(0);photoCarouselTimer=setInterval(()=>show(current+1),5000);photoHero.addEventListener('pointerdown',e=>{startX=e.clientX;photoHero.setPointerCapture?.(e.pointerId);});photoHero.addEventListener('pointerup',e=>{const delta=e.clientX-startX;if(Math.abs(delta)>34)show(current+(delta<0?1:-1));});}
   }
   function renderDays(s) { const d = new Date(), y=d.getFullYear(), m=d.getMonth(), first=new Date(y,m,1).getDay(), total=new Date(y,m+1,0).getDate(), marked=new Set(live(s.todos).map(t=>t.date)); let cells=['日','一','二','三','四','五','六'].map(x=>`<span class="week">${x}</span>`).join(''); for(let i=0;i<first;i++) cells += '<span></span>'; for(let n=1;n<=total;n++){const key=`${y}-${String(m+1).padStart(2,'0')}-${String(n).padStart(2,'0')}`;cells += `<span class="${key===dayKey()?'today ':''}${marked.has(key)?'marked':''}">${n}</span>`;} const todos=live(s.todos).sort((a,b)=>Number(a.done)-Number(b.done)); slot('days').innerHTML=`<header class="life-head"><div class="life-eyebrow">把值得记住的日子放在一起</div><h1 class="life-title">日子</h1><p class="life-sub">接下来的日子，和值得回看的日子。</p></header><section class="life-hero"><strong class="life-hero-number">${Math.max(0,Math.floor((Date.now()-new Date(2023,11,4))/86400000))} 天</strong><p>从 2023 年 12 月 4 日开始，一起走过的日子。</p></section><section class="life-section life-all-todos"><div class="life-section-head"><h2 class="life-section-title">全部待办</h2><button class="life-pill" data-life-add-todo>添加</button></div><div class="life-mini-list">${todos.map(t=>`<div class="life-row"><button data-life-toggle-todo="${esc(t.id)}" class="life-icon">${icon(t.done?'check-circle':'circle')}</button><span class="life-row-main"><span class="life-value">${esc(t.text)}</span><span class="life-label">${esc(t.date || '未设日期')}${t.done?' · 已完成':''}</span></span><button class="life-row-action" data-life-edit-todo="${esc(t.id)}">编辑</button></div>`).join('') || '<div class="life-data-empty">还没有待办。</div>'}</div></section><section class="life-section"><div class="life-section-head"><h2 class="life-section-title">这个月</h2><button class="life-pill" data-life-open="todo">待办日历</button></div><div class="life-card life-calendar">${cells}</div></section>`; }
-  function renderThings(s) { const me=s.settings?.me||'a', msgs=live(s.messages).slice(-3).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)), wishes=live(s.wishes).slice(-4).reverse(), photos=live(s.gallery).filter(x=>x.dataUrl||x.url), trips=live(s.travels).filter(x=>x.status!=='wish'); slot('things').innerHTML=`<header class="life-head"><div class="life-eyebrow">不必整理得很完美</div><h1 class="life-title">小事</h1><p class="life-sub">照片、旅途和说过的话，<br>都在这里慢慢积累。</p></header><section class="life-things-portals"><button class="life-things-portal life-things-gallery" data-life-open="gallery"><div><span>共同相册</span><b>${photos.length?`已经收下 ${photos.length} 张照片`:'保存你们看见的此刻'}</b><small>上传、查看与整理共同照片</small></div><img loading="lazy" decoding="async" src="assets/puffer-camera.webp" alt="拿着相机的胖头鱼">${icon('caret-right')}</button><button class="life-things-portal life-things-travel" data-life-open="travel"><div><span>我们的足迹</span><b>${trips.length?`一起去过 ${trips.length} 个地方`:'从第一段旅途开始'}</b><small>打开世界地图，记下去过的地方</small></div><img loading="lazy" decoding="async" src="assets/puffer-travel.webp" alt="拿着地图、背着旅行包的胖头鱼">${icon('caret-right')}</button></section><section class="life-section"><div class="life-section-head"><h2 class="life-section-title">留给你</h2><button class="life-pill" data-life-open="messages">说句话</button></div><div class="life-inline-chat">${msgs.map(m=>`<div class="life-chat ${m.author===me?'mine':''}">${m.image?`<img class="life-chat-image" loading="lazy" decoding="async" src="${esc(m.image)}" alt="留言图片">`:''}<p>${esc(m.text)||'发来了一张照片'}</p><time>${when(m.createdAt)}</time></div>`).join('') || '<div class="life-data-empty">还没有留言，写一句给对方吧。</div>'}</div></section><section class="life-section"><div class="life-section-head"><h2 class="life-section-title">小心愿墙</h2><button class="life-pill" data-life-open="wishes">查看全部</button></div><div class="life-wish-grid">${wishes.map(w=>`<article class="life-wish ${w.lit?'lit':''}"><span>${esc(w.icon||'✨')}</span><b>${esc(w.text)}</b><small>${when(w.createdAt)}</small></article>`).join('') || '<div class="life-data-empty">心愿墙还是空的。</div>'}</div></section>`; }
+  function renderThings(s) { const me=s.settings?.me||'a', msgs=live(s.messages).slice(-3).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)), wishes=live(s.wishes).slice(-4).reverse(), photos=live(s.gallery).filter(x=>x.dataUrl||x.url), trips=live(s.travels).filter(x=>x.status!=='wish'); slot('things').innerHTML=`<header class="life-head"><div class="life-eyebrow">不必整理得很完美</div><h1 class="life-title">小事</h1><p class="life-sub">照片、旅途和说过的话，<br>都在这里慢慢积累。</p></header><section class="life-things-portals"><button class="life-things-portal life-things-gallery" data-life-open="gallery"><div><span>共同相册</span><b>${photos.length?`已经收下 ${photos.length} 张照片`:'保存你们看见的此刻'}</b><small>上传、查看与整理共同照片</small></div><img loading="lazy" decoding="async" src="assets/puffer-camera.webp" alt="拿着相机的胖头鱼">${icon('caret-right')}</button><button class="life-things-portal life-things-travel" data-life-open="travel"><div><span>我们的足迹</span><b>${trips.length?`一起去过 ${trips.length} 个地方`:'从第一段旅途开始'}</b><small>打开世界地图，记下去过的地方</small></div><img loading="lazy" decoding="async" src="assets/puffer-travel.webp" alt="拿着地图、背着旅行包的胖头鱼">${icon('caret-right')}</button></section><section class="life-section"><div class="life-section-head"><h2 class="life-section-title">留给你</h2><button class="life-pill" data-life-open="messages">说句话</button></div><div class="life-inline-chat">${msgs.map(m=>`<div class="life-chat ${m.author===me?'mine':''}">${m.image?`<img class="life-chat-image" loading="lazy" decoding="async" src="${esc(m.image)}" alt="留言图片">`:''}<p>${esc(m.text)||'发来了一张照片'}</p>${messageMetaMarkup(m,when(m.createdAt))}</div>`).join('') || '<div class="life-data-empty">还没有留言，写一句给对方吧。</div>'}</div></section><section class="life-section"><div class="life-section-head"><h2 class="life-section-title">小心愿墙</h2><button class="life-pill" data-life-open="wishes">查看全部</button></div><div class="life-wish-grid">${wishes.map(w=>`<article class="life-wish ${w.lit?'lit':''}"><span>${esc(w.icon||'✨')}</span><b>${esc(w.text)}</b><small>${when(w.createdAt)}</small></article>`).join('') || '<div class="life-data-empty">心愿墙还是空的。</div>'}</div></section>`; }
   function renderUs(s) { const p=s.settings?.partners||{}, photos=live(s.gallery).length, messages=live(s.messages).length, wishes=live(s.wishes).length, travels=live(s.travels).length, todayMessages=live(s.messages).filter(item=>sameDay(item.createdAt)).length, todayPhotos=live(s.gallery).filter(item=>sameDay(item.createdAt)).length, todayTodos=live(s.todos).filter(item=>sameDay(item.updatedAt||item.createdAt)&&item.done).length, received=todayMessages+todayPhotos+todayTodos; const nestCopy=received?`今天，小窝收下了 ${received} 个共同瞬间。`:'今天的小窝很安静，留下一句话也很好。'; slot('us').innerHTML=`<header class="life-head"><div class="life-eyebrow">一份慢慢积累的共同生活</div><h1 class="life-title">我们</h1><p class="life-sub">只属于你们两个人的空间。</p></header><section class="life-card life-couple"><div class="life-person"><div class="life-avatar">${esc((p.a||'我').slice(0,1))}</div><small>${esc(p.a||'成员 A')}</small></div><div class="life-link">${icon('heart')}</div><div class="life-person"><div class="life-avatar">${esc((p.b||'TA').slice(0,1))}</div><small>${esc(p.b||'成员 B')}</small></div></section><button class="life-home-nest life-home-nest-button" data-life-open="nest"><div><span>胖头鱼的小窝</span><b>${esc(nestCopy)}</b><p>点进来看看，今天的小屋收下了什么。</p></div><img loading="lazy" decoding="async" src="assets/puffer-page-us.webp" alt="胖头鱼的小窝">${icon('caret-right')}</button><section class="life-section"><h2 class="life-section-title">共同积累</h2><div class="life-card" style="padding:16px"><span class="life-label">已同步的共同记录</span><strong class="life-hero-number">${photos+messages+wishes+travels+live(s.todos).length} 条</strong><p class="life-sub">照片 ${photos} 张 · 足迹 ${travels} 个 · 留言 ${messages} 条</p></div></section><section class="life-section"><h2 class="life-section-title">我们的空间</h2><div class="life-mini-list"><button class="life-row life-row-button" data-life-open="gallery"><span class="life-icon">${icon('image')}</span><span class="life-row-main"><span class="life-value">共同相册</span><span class="life-label">已保存 ${photos} 张照片</span></span></button><button class="life-row life-row-button" data-life-open="travel"><span class="life-icon">${icon('map-trifold')}</span><span class="life-row-main"><span class="life-value">我们的足迹</span><span class="life-label">已保存 ${travels} 个旅行地点</span></span></button><button class="life-row life-row-button" data-life-open="wishes"><span class="life-icon">${icon('heart')}</span><span class="life-row-main"><span class="life-value">心愿</span><span class="life-label">已保存 ${wishes} 个共同心愿</span></span></button><button class="life-row life-row-button" data-life-settings><span class="life-icon">${icon('gear-six')}</span><span class="life-row-main"><span class="life-value">我们与同步</span><span class="life-label">查看共同空间与资料</span></span></button></div></section>`; }
-  function renderRoomCapsule(s) { const header=slot('today').querySelector('.life-head'), room=s.settings?.room||{}; if(!header) return; const stateText=!room.joined?'未加入':room.lastError?'异常':'已同步', stateClass=!room.joined?'is-idle':room.lastError?'is-error':'is-ok', roomLabel=room.joined&&room.id?`#${room.id}`:'共同空间'; header.insertAdjacentHTML('beforeend',`<button class="life-room-capsule ${stateClass}" data-life-settings aria-label="查看同步状态"><span></span><b>${esc(roomLabel)}</b><small>${stateText}</small></button>`); }
+  function renderRoomCapsule(s) { const header=slot('today').querySelector('.life-head'), room=s.settings?.room||{}, sync=syncStatus(), stateClass={local:'is-idle',pending:'is-pending',syncing:'is-busy',failed:'is-error',synced:'is-ok'}[sync.key]||'is-idle', stateText={local:'未加入',pending:'待同步',syncing:'同步中',failed:'异常',synced:'已同步'}[sync.key]||sync.label, roomLabel=room.joined&&room.id?`#${room.id}`:'共同空间'; if(!header) return; header.insertAdjacentHTML('beforeend',`<button class="life-room-capsule ${stateClass}" data-life-settings aria-label="查看同步状态"><span></span><b>${esc(roomLabel)}</b><small>${esc(stateText)}</small></button>`); }
+  function refreshSyncUi() {
+    const sync=syncStatus(), capsule=root.querySelector('.life-room-capsule'), stateClass={local:'is-idle',pending:'is-pending',syncing:'is-busy',failed:'is-error',synced:'is-ok'}[sync.key]||'is-idle', stateText={local:'未加入',pending:'待同步',syncing:'同步中',failed:'异常',synced:'已同步'}[sync.key]||sync.label;
+    if(capsule){capsule.classList.remove('is-idle','is-pending','is-busy','is-error','is-ok');capsule.classList.add(stateClass);const label=capsule.querySelector('small');if(label)label.textContent=stateText;}
+    document.querySelectorAll('[data-message-receipt]').forEach(node=>{const html=messageReceiptMarkup(node.dataset.messageReceipt);if(html)node.outerHTML=html;});
+  }
   function render() { const s=state(); if(!s) return; const reusableMedia=takeReusableMedia(root); renderToday(s); renderRoomCapsule(s); renderDays(s); renderThings(s); renderUs(s); restoreReusableMedia(root,reusableMedia); renderCompanionFloat(s); const companion=document.querySelector('#lifeCompanionFloat'); ensureCompanionIdle(companion); ensureCompanionBlink(companion); renderCompanionNudge(s); fetchCompanionAiLine(s); }
-  function todoSheet(todo) { const t=todo||{}; openSheet(`<h2>${todo?'编辑待办':'添加待办'}</h2><textarea id="lifeTodoText" placeholder="想一起完成什么？">${esc(t.text||'')}</textarea><input class="life-sheet-input" id="lifeTodoDate" type="date" value="${esc(t.date||dayKey())}"><select class="life-sheet-input" id="lifeTodoPriority"><option value="none">不设置优先级</option><option value="high" ${t.priority==='high'?'selected':''}>高优先级</option><option value="mid" ${t.priority==='mid'?'selected':''}>中优先级</option><option value="low" ${t.priority==='low'?'selected':''}>低优先级</option></select><button class="life-sheet-primary" data-save-todo="${esc(t.id||'')}">保存</button>`); }
+  function todoSheet(todo) { const t=todo||{},draftKey=`todo:${t.id||'new'}`; openSheet(`<section data-life-draft="${esc(draftKey)}"><h2>${todo?'编辑待办':'添加待办'}</h2><textarea id="lifeTodoText" data-life-draft-field="text" maxlength="160" placeholder="想一起完成什么？">${esc(t.text||'')}</textarea><input class="life-sheet-input" id="lifeTodoDate" data-life-draft-field="date" type="date" value="${esc(t.date||dayKey())}"><select class="life-sheet-input" id="lifeTodoPriority" data-life-draft-field="priority"><option value="none">不设置优先级</option><option value="high" ${t.priority==='high'?'selected':''}>高优先级</option><option value="mid" ${t.priority==='mid'?'selected':''}>中优先级</option><option value="low" ${t.priority==='low'?'selected':''}>低优先级</option></select><button class="life-sheet-primary" data-save-todo="${esc(t.id||'')}">保存</button></section>`); }
   function calendarSheet() { const s=state(), base=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth(),1), y=base.getFullYear(),m=base.getMonth(),first=base.getDay(),total=new Date(y,m+1,0).getDate(),todos=live(s.todos).filter(t=>String(t.date||'').startsWith(`${y}-${String(m+1).padStart(2,'0')}`));let grid=['日','一','二','三','四','五','六'].map(x=>`<span class="week">${x}</span>`).join('');for(let i=0;i<first;i++)grid+='<span></span>';for(let n=1;n<=total;n++){const key=`${y}-${String(m+1).padStart(2,'0')}-${String(n).padStart(2,'0')}`;grid+=`<span class="${key===dayKey()?'today ':''}${todos.some(t=>t.date===key)?'marked':''}">${n}</span>`;}openSheet(`<div class="life-calendar-head"><button data-life-calendar-shift="-1">${icon('caret-left')}</button><h2>${y} 年 ${m+1} 月</h2><button data-life-calendar-shift="1">${icon('caret-right')}</button></div><p>橙色日期表示今天，浅色日期表示已有待办。</p><div class="life-sheet-calendar">${grid}</div><h3 class="life-sheet-subtitle">本月待办</h3><div class="life-mini-list">${todos.map(t=>`<div class="life-row"><span class="life-icon">${icon(t.done?'check-circle':'circle')}</span><span class="life-row-main"><span class="life-value">${esc(t.text)}</span><span class="life-label">${esc(t.date)}${t.done?' · 已完成':''}</span></span></div>`).join('')||'<div class="life-data-empty">这个月还没有待办。</div>'}</div>`); }
-  function messageSheet() { const s=state(),me=s.settings?.me||'a',names=s.settings?.partners||{},chats=live(s.messages).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)).slice(-40); openSheet(`<div class="life-chat-sheet"><div class="life-chat-title"><h2>留给你</h2><span>${esc(names[me==='a'?'b':'a']||'TA')}</span></div><div class="life-message-history">${chats.map(m=>`<article class="life-chat ${m.author===me?'mine':''}">${m.image?`<img class="life-chat-image" loading="lazy" decoding="async" src="${esc(m.image)}" alt="留言图片">`:''}<p>${esc(m.text)||'发来了一张照片'}</p><time>${esc(m.author===me?(names[me]||'我'):(names[m.author]||'TA'))} · ${when(m.createdAt)}</time></article>`).join('')||'<div class="life-chat-empty">还没有对话，先留一句给 TA 吧。</div>'}</div><div class="life-message-composer"><textarea id="lifeMessageText" placeholder="写点什么给 TA..."></textarea><div class="life-message-actions"><label class="life-photo-button" for="lifeMessageImage">${icon('image')}</label><input id="lifeMessageImage" type="file" accept="image/*"><button class="life-sheet-primary" data-save-message>发送</button></div><div id="lifeMessageImagePreview" class="life-message-image-preview" hidden></div></div></div>`); requestAnimationFrame(()=>{const body=mask.querySelector('.life-sheet-body');body.scrollTop=body.scrollHeight;}); }
-  function gallerySheet() { const s=state(),items=live(s.gallery).filter(x=>x.dataUrl||x.url);openSheet(`<h2>共同相册</h2><input id="lifePhotoFile" type="file" accept="image/*"><textarea id="lifePhotoCaption" placeholder="写一句照片说明（可选）"></textarea><button class="life-sheet-primary" data-save-photo>上传照片</button><div class="life-media-grid">${items.map(x=>`<article><img loading="lazy" decoding="async" src="${esc(x.dataUrl||x.url)}" alt="共同照片"><span>${esc(x.caption||'共同瞬间')}</span><button class="life-media-delete" type="button" data-life-delete-gallery="${esc(x.id)}">删除照片</button></article>`).join('')||'<div class="life-data-empty">还没有照片。</div>'}</div>`); }
+  function messageSheet() {
+    hideLiveMessageNotice(true);
+    window.PufferLife?.markMessagesRead?.();
+    const s=state(),me=s.settings?.me||'a',names=s.settings?.partners||{};
+    openSheet(`<div class="life-chat-sheet" data-life-draft="message"><div class="life-chat-title"><h2>留给你</h2><span>${esc(names[me==='a'?'b':'a']||'TA')}</span></div><div class="life-message-history">${messageHistoryMarkup(s)}</div><div class="life-message-composer"><textarea id="lifeMessageText" data-life-draft-field="text" maxlength="1200" placeholder="写点什么给 TA..."></textarea><div class="life-message-actions"><label class="life-photo-button" for="lifeMessageImage">${icon('image')}</label><input id="lifeMessageImage" type="file" accept="image/*"><button class="life-sheet-primary" data-save-message>发送</button></div><div id="lifeMessageImagePreview" class="life-message-image-preview" hidden></div></div></div>`);
+    requestAnimationFrame(()=>{const history=mask.querySelector('.life-message-history');if(history)history.scrollTop=history.scrollHeight;});
+  }
+  function gallerySheet() { const s=state(),items=live(s.gallery).filter(x=>x.dataUrl||x.url);openSheet(`<section data-life-draft="gallery"><h2>共同相册</h2><input id="lifePhotoFile" type="file" accept="image/*"><textarea id="lifePhotoCaption" data-life-draft-field="caption" maxlength="200" placeholder="写一句照片说明（可选）"></textarea><button class="life-sheet-primary" data-save-photo>上传照片</button><div class="life-media-grid">${items.map(x=>`<article><img loading="lazy" decoding="async" src="${esc(x.dataUrl||x.url)}" alt="共同照片"><span>${esc(x.caption||'共同瞬间')}</span><button class="life-media-delete" type="button" data-life-delete-gallery="${esc(x.id)}">删除照片</button></article>`).join('')||'<div class="life-data-empty">还没有照片。</div>'}</div></section>`); }
   const knownTravelCoords={杭州:[120.16,30.27],上海:[121.47,31.23],三亚:[109.51,18.25],北京:[116.41,39.90],重庆:[106.55,29.56],香港:[114.17,22.32],澳门:[113.54,22.20],成都:[104.07,30.57],广州:[113.26,23.13],深圳:[114.06,22.55]};
   function travelCoords(item){const lat=Number(item?.lat),lng=Number(item?.lng);if(Number.isFinite(lat)&&Number.isFinite(lng))return[lng,lat];const name=String(item?.place||'');const key=Object.keys(knownTravelCoords).find(city=>name.includes(city));return key?knownTravelCoords[key]:null;}
   function travelMapSvg(items){const located=items.map(item=>({item,coords:travelCoords(item)})).filter(x=>x.coords),point=([lng,lat])=>[10+(lng+180)/360*340,10+(90-lat)/180*160],markers=located.map(({item,coords})=>{const[x,y]=point(coords);return `<button class="life-travel-marker ${item.status==='wish'?'is-wish':''}" style="--travel-x:${x/3.6}%;--travel-y:${y/1.8}%" data-travel-detail="${esc(item.id)}" aria-label="${esc(item.place)}"><i></i><span>${esc(item.place)}</span></button>`}).join('');return `<div class="life-travel-world" aria-label="世界旅行地图"><svg viewBox="0 0 360 180" role="img" aria-label="世界地图"><g><path d="M17 55l20-23 39-8 28 13 21 3 13 18-16 15-27 0-19 21-15 31-16-18 4-28-19-12z"/><path d="M104 99l23 8 14 22-3 34-17 14-12-31-15-22z"/><path d="M143 45l25-20 35 7 17 13 38-12 48 14 39 24-10 22-39 1-29 13-21-9-18 16-20-21-26 4-17-21-27-13z"/><path d="M189 98l38 4 25 29-6 42-30-5-18-35z"/><path d="M291 126l28-10 27 17-7 28-34 5-22-20z"/></g></svg>${markers}<div class="life-travel-map-copy"><span>我们的世界地图</span><b>${items.length?`已经留下 ${items.length} 个地点`:'地图还在等第一枚足迹'}</b></div></div>`;}
@@ -177,7 +552,7 @@
   }
 
   function travelDateLabel(value){const date=value?new Date(`${value}T12:00:00`):null;if(!date||Number.isNaN(date.getTime()))return '未填写日期';return `${date.getFullYear()} 年 ${date.getMonth()+1} 月 ${date.getDate()} 日`;}
-  function travelForm(){return `<section class="life-travel-compose"><div class="life-travel-compose-head"><span>新的旅行记录</span><h2>这一站，<br>想怎么留下？</h2><p>地点是必填，其他都可以慢慢补上。</p></div><div class="life-travel-quick-form"><label class="life-travel-place-field"><span>地点</span><input class="life-sheet-input" id="lifeTravelPlace" maxlength="120" placeholder="这次去了哪里？"></label><div class="life-travel-quick-row"><div class="life-travel-kind-picker"><span>类型</span><div><button type="button" class="active" data-travel-kind="visited">${icon('map-pin')} 去过</button><button type="button" data-travel-kind="wish">${icon('heart')} 想去</button></div><input id="lifeTravelStatus" type="hidden" value="visited"></div><label class="life-travel-date-field"><span>日期</span><input id="lifeTravelDate" type="date" value="${dayKey()}"></label></div><label class="life-travel-note-field"><span>想写一句</span><textarea id="lifeTravelNote" maxlength="1200" placeholder="发生了什么？可不写。"></textarea></label><div class="life-travel-extra-actions"><label class="life-travel-photo">${icon('camera')}<span id="lifeTravelPhotoText">加照片</span><input id="lifeTravelPhoto" type="file" accept="image/*"></label><button class="life-travel-location" type="button" data-travel-locate>${icon('crosshair')}<span id="lifeTravelLocationText">记录位置</span></button></div><input id="lifeTravelLat" type="hidden"><input id="lifeTravelLng" type="hidden"><button class="life-sheet-primary" type="button" data-save-travel>记下这一站</button></div></section>`;}
+  function travelForm(){return `<section class="life-travel-compose" data-life-draft="travel:new"><div class="life-travel-compose-head"><span>新的旅行记录</span><h2>这一站，<br>想怎么留下？</h2><p>地点是必填，其他都可以慢慢补上。</p></div><div class="life-travel-quick-form"><label class="life-travel-place-field"><span>地点</span><input class="life-sheet-input" id="lifeTravelPlace" data-life-draft-field="place" maxlength="120" placeholder="这次去了哪里？"></label><div class="life-travel-quick-row"><div class="life-travel-kind-picker"><span>类型</span><div><button type="button" class="active" data-travel-kind="visited">${icon('map-pin')} 去过</button><button type="button" data-travel-kind="wish">${icon('heart')} 想去</button></div><input id="lifeTravelStatus" data-life-draft-field="status" type="hidden" value="visited"></div><label class="life-travel-date-field"><span>日期</span><input id="lifeTravelDate" data-life-draft-field="date" type="date" value="${dayKey()}"></label></div><label class="life-travel-note-field"><span>想写一句</span><textarea id="lifeTravelNote" data-life-draft-field="note" maxlength="1200" placeholder="发生了什么？可不写。"></textarea></label><div class="life-travel-extra-actions"><label class="life-travel-photo">${icon('camera')}<span id="lifeTravelPhotoText">加照片</span><input id="lifeTravelPhoto" type="file" accept="image/*"></label><button class="life-travel-location" type="button" data-travel-locate>${icon('crosshair')}<span id="lifeTravelLocationText">记录位置</span></button></div><input id="lifeTravelLat" data-life-draft-field="lat" type="hidden"><input id="lifeTravelLng" data-life-draft-field="lng" type="hidden"><button class="life-sheet-primary" type="button" data-save-travel>记下这一站</button></div></section>`;}
   function travelTimelineRow(item){const photo=item.dataUrl||item.url,located=Number.isFinite(Number(item.lat))&&Number.isFinite(Number(item.lng)),type=item.status==='wish'?'想去':'已去过';return `<article class="life-travel-entry ${item.status==='wish'?'is-wish':''}"><i class="life-travel-dot"></i><div class="life-travel-entry-card"><div class="life-travel-entry-meta"><time>${esc(travelDateLabel(item.date))}</time><span>${type}</span></div><h3>${esc(item.place||'未命名地点')}</h3>${located?`<p class="life-travel-entry-location">${icon('map-pin')} 已记录当前位置</p>`:''}${item.note?`<p class="life-travel-entry-note">${esc(item.note)}</p>`:''}${photo?`<img loading="lazy" decoding="async" src="${esc(photo)}" alt="${esc(item.place||'旅行照片')}">`:''}<div class="life-travel-entry-foot"><span>${item.author===state().settings?.me?'我':'TA'} 留下</span><button type="button" data-delete-travel="${esc(item.id)}">删除</button></div></div></article>`;}
   function travelSheet(view = '') {
     const items=live(state().travels).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||((b.updatedAt||0)-(a.updatedAt||0))),visited=items.filter(item=>item.status!=='wish').length,wishes=items.length-visited;
@@ -188,26 +563,53 @@ openSheet(`<div class="life-travel-page life-travel-timeline-page"><header><butt
     const items = live(state().travels).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     openSheet(`<div class="life-travel-page"><header><button data-sheet-close>${icon('caret-left')} 小事</button><div><b>我们的足迹</b><small>地图就是旅行主页</small></div><button data-travel-view="add">记下</button></header>${travelMapSvg(items)}${view ? `<section class="life-travel-panel">${travelPanel(view, items)}</section>` : ''}<nav class="life-travel-dock"><button class="${view === 'footprints' ? 'active' : ''}" data-travel-view="footprints">${icon('map-trifold')}<span>足迹</span></button><button class="${view === 'recent' ? 'active' : ''}" data-travel-view="recent">${icon('clock')}<span>最近</span></button><button class="${view === 'wishes' ? 'active' : ''}" data-travel-view="wishes">${icon('heart')}<span>想去</span></button><button class="${view === 'add' ? 'active' : ''}" data-travel-view="add">${icon('plus-circle')}<span>新增</span></button></nav></div>`, 'life-sheet-travel');
   }
-  function hydrationSheet(selected='water',audience=hydrationAudience) { const info=window.PufferLife?.getHydrationToday?.()||{me:{water:0,drink:0},partner:{water:0,drink:0},goal:1500,drinkLimit:500,records:[],partnerRecords:[]},readonly=audience==='partner',totals=readonly?info.partner:info.me,kind=selected==='drink'?'drink':'water',items=(readonly?info.partnerRecords:info.records||[]).slice(0,8),editor=readonly?'':`<label class="life-field-label" for="lifeHydrationMl">这次喝了多少</label><div class="life-hydration-presets"><button data-hydration-ml="250">250 ml</button><button class="active" data-hydration-ml="500">一杯 · 500 ml</button><button data-hydration-ml="750">750 ml</button></div><div class="life-hydration-custom"><input id="lifeHydrationMl" class="life-sheet-input" type="number" inputmode="numeric" min="1" max="3000" step="50" value="500"><span>ml</span></div><button class="life-sheet-primary" data-save-hydration="${kind}">记录${kind==='water'?'喝水':'饮料'}</button>`;openSheet(`<section class="life-hydration-sheet-hero ${readonly?'is-readonly':''}"><span class="life-hydration-sheet-icon">${icon(readonly?'eye':'drop')}</span><div><small>${readonly?'TA 的今天':'今天喝了什么'}</small><h2>${readonly?'对方的饮用记录':'记下一次饮用'}</h2><p>${readonly?'这里只用于查看，记录和撤销需要由对方在自己的设备完成。':'水和饮料分开记录，默认一杯是 500 ml。'}</p></div></section><div class="life-hydration-kind"><button class="${kind==='water'?'active':''}" ${readonly?'':'data-hydration-select="water"'}>${icon('drop')} 水 <b>${totals.water} ml</b></button><button class="${kind==='drink'?'active':''}" ${readonly?'':'data-hydration-select="drink"'}>${icon('coffee')} 饮料 <b>${totals.drink} ml</b></button></div>${editor}<h3 class="life-sheet-subtitle">今天的记录</h3><div class="life-mini-list life-hydration-history">${items.length?items.map(item=>`<div class="life-row"><span class="life-icon">${icon(item.kind==='drink'?'coffee':'drop')}</span><span class="life-row-main"><span class="life-value">${item.kind==='drink'?'饮料':'水'} · ${item.ml} ml</span><span class="life-label">${when(item.createdAt)}</span></span>${readonly?'':`<button class="life-row-action" data-delete-hydration="${esc(item.id)}">撤销</button>`}</div>`).join(''):'<div class="life-data-empty">今天还没有记录。</div>'}</div>`); }
+  function hydrationSheet(selected='water',audience=hydrationAudience) { const info=window.PufferLife?.getHydrationToday?.()||{me:{water:0,drink:0},partner:{water:0,drink:0},goal:1500,drinkLimit:500,records:[],partnerRecords:[]},readonly=audience==='partner',totals=readonly?info.partner:info.me,kind=selected==='drink'?'drink':'water',items=(readonly?info.partnerRecords:info.records||[]).slice(0,8),draft=readonly?'':` data-life-draft="hydration:${kind}:${dayKey()}"`,editor=readonly?'':`<label class="life-field-label" for="lifeHydrationMl">这次喝了多少</label><div class="life-hydration-presets"><button data-hydration-ml="250">250 ml</button><button class="active" data-hydration-ml="500">一杯 · 500 ml</button><button data-hydration-ml="750">750 ml</button></div><div class="life-hydration-custom"><input id="lifeHydrationMl" data-life-draft-field="ml" class="life-sheet-input" type="number" inputmode="numeric" min="1" max="3000" step="50" value="500"><span>ml</span></div><button class="life-sheet-primary" data-save-hydration="${kind}">记录${kind==='water'?'喝水':'饮料'}</button>`;openSheet(`<section${draft}><section class="life-hydration-sheet-hero ${readonly?'is-readonly':''}"><span class="life-hydration-sheet-icon">${icon(readonly?'eye':'drop')}</span><div><small>${readonly?'TA 的今天':'今天喝了什么'}</small><h2>${readonly?'对方的饮用记录':'记下一次饮用'}</h2><p>${readonly?'这里只用于查看，记录和撤销需要由对方在自己的设备完成。':'水和饮料分开记录，默认一杯是 500 ml。'}</p></div></section><div class="life-hydration-kind"><button class="${kind==='water'?'active':''}" ${readonly?'':'data-hydration-select="water"'}>${icon('drop')} 水 <b>${totals.water} ml</b></button><button class="${kind==='drink'?'active':''}" ${readonly?'':'data-hydration-select="drink"'}>${icon('coffee')} 饮料 <b>${totals.drink} ml</b></button></div>${editor}<h3 class="life-sheet-subtitle">今天的记录</h3><div class="life-mini-list life-hydration-history">${items.length?items.map(item=>`<div class="life-row"><span class="life-icon">${icon(item.kind==='drink'?'coffee':'drop')}</span><span class="life-row-main"><span class="life-value">${item.kind==='drink'?'饮料':'水'} · ${item.ml} ml</span><span class="life-label">${when(item.createdAt)}</span></span>${readonly?'':`<button class="life-row-action" data-delete-hydration="${esc(item.id)}">撤销</button>`}</div>`).join(''):'<div class="life-data-empty">今天还没有记录。</div>'}</div></section>`); }
   function trainingSheet(date) { const s=state(), all=live(s.trainings), groups={}; all.forEach(t=>{const key=t.date||'未标注日期';(groups[key]||(groups[key]=[])).push(t);}); if(date){const rows=(groups[date]||[]).map(t=>`<div class="life-row"><span class="life-icon">${icon('barbell')}</span><span class="life-row-main"><span class="life-value">${esc(t.content)}</span><span class="life-label">${esc(t.muscle||'训练')}${t.duration?` · ${esc(t.duration)}`:''}</span></span><button class="life-row-action" data-life-edit-training="${esc(t.id)}">编辑</button></div>`).join('');return openSheet(`<h2>${esc(date)} 的训练</h2><div class="life-mini-list">${rows}</div>`);} const rows=Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,items])=>`<button class="life-row life-row-button" data-life-training-day="${esc(d)}"><span class="life-icon">${icon('barbell')}</span><span class="life-row-main"><span class="life-value">${esc(d)} · ${items.length} 条训练</span><span class="life-label">${esc([...new Set(items.map(x=>x.muscle||x.content))].join(' · '))}</span></span></button>`).join('');openSheet(`<h2>训练记录</h2><div class="life-mini-list">${rows||'<div class="life-data-empty">还没有训练记录。</div>'}</div><button class="life-sheet-primary" data-life-add-training>记录训练</button>`); }
-  function trainingEdit(item) { const t=item||{};openSheet(`<h2>${item?'编辑训练':'记录训练'}</h2><textarea id="lifeTrainContent" placeholder="今天练了什么？">${esc(t.content||'')}</textarea><input class="life-sheet-input" id="lifeTrainDate" type="date" value="${esc(t.date||dayKey())}"><input class="life-sheet-input" id="lifeTrainMuscle" placeholder="部位，例如：胸肩" value="${esc(t.muscle||'')}"><input class="life-sheet-input" id="lifeTrainDuration" placeholder="时长（可选）" value="${esc(t.duration||'')}"><textarea id="lifeTrainNote" placeholder="备注（可选）">${esc(t.note||'')}</textarea><button class="life-sheet-primary" data-save-training="${esc(t.id||'')}">保存</button>`); }
-  function wishSheet() { const s=state(),me=s.settings?.me||'a',items=live(s.wishes).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));openSheet(`<h2>心愿墙</h2><textarea id="lifeWishText" placeholder="写下一个小心愿…"></textarea><button class="life-sheet-primary" data-save-wish>贴上心愿</button><div class="life-wish-grid">${items.map(w=>`<article class="life-wish ${w.lit?'lit':''}"><span>${esc(w.icon||'✨')}</span><b>${esc(w.text)}</b><small>${when(w.createdAt)}</small>${w.author!==me&&!w.lit?`<button data-life-light-wish="${esc(w.id)}">点亮</button>`:''}</article>`).join('')||'<div class="life-data-empty">心愿墙还是空的。</div>'}</div>`); }
+  function trainingEdit(item) { const t=item||{},draftKey=`training:${t.id||'new'}`;openSheet(`<section data-life-draft="${esc(draftKey)}"><h2>${item?'编辑训练':'记录训练'}</h2><textarea id="lifeTrainContent" data-life-draft-field="content" maxlength="800" placeholder="今天练了什么？">${esc(t.content||'')}</textarea><input class="life-sheet-input" id="lifeTrainDate" data-life-draft-field="date" type="date" value="${esc(t.date||dayKey())}"><input class="life-sheet-input" id="lifeTrainMuscle" data-life-draft-field="muscle" maxlength="80" placeholder="部位，例如：胸肩" value="${esc(t.muscle||'')}"><input class="life-sheet-input" id="lifeTrainDuration" data-life-draft-field="duration" maxlength="80" placeholder="时长（可选）" value="${esc(t.duration||'')}"><textarea id="lifeTrainNote" data-life-draft-field="note" maxlength="800" placeholder="备注（可选）">${esc(t.note||'')}</textarea><button class="life-sheet-primary" data-save-training="${esc(t.id||'')}">保存</button></section>`); }
+  function wishSheet() { const s=state(),me=s.settings?.me||'a',items=live(s.wishes).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));openSheet(`<section data-life-draft="wish"><h2>心愿墙</h2><textarea id="lifeWishText" data-life-draft-field="text" maxlength="160" placeholder="写下一个小心愿…"></textarea><button class="life-sheet-primary" data-save-wish>贴上心愿</button><div class="life-wish-grid">${items.map(w=>`<article class="life-wish ${w.lit?'lit':''}"><span>${esc(w.icon||'✨')}</span><b>${esc(w.text)}</b><small>${when(w.createdAt)}</small>${w.author!==me&&!w.lit?`<button data-life-light-wish="${esc(w.id)}">点亮</button>`:''}</article>`).join('')||'<div class="life-data-empty">心愿墙还是空的。</div>'}</div></section>`); }
   function nestSheet() { const s=state(),photos=live(s.gallery).filter(x=>x.dataUrl||x.url),messages=live(s.messages),todayPhotos=photos.filter(x=>sameDay(x.createdAt)),todayMessages=messages.filter(x=>sameDay(x.createdAt)),todayDone=live(s.todos).filter(x=>x.done&&sameDay(x.updatedAt||x.createdAt)),latestPhoto=[...photos].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0],latestMessage=[...messages].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0],memory=rediscovery(s),shelf=memory|| (latestPhoto?{title:'窗边的一张照片',text:latestPhoto.caption||'你们最近收下的共同瞬间。',image:latestPhoto.dataUrl||latestPhoto.url}:latestMessage?{title:'留在桌上的一句话',text:latestMessage.text||'TA 发来了一张照片。',image:latestMessage.image||''}:null);openSheet(`<div class="life-nest-page"><section class="life-nest-room"><img decoding="async" src="assets/puffer-nest-room.webp" alt="胖头鱼的小屋"><div><span>胖头鱼的小窝</span><h2>把普通的日子，<br>慢慢放进家里。</h2><p>这里不需要打卡，<br>只收下你们想留下的东西。</p></div></section><section class="life-nest-section"><div class="life-nest-title"><span>今天收下</span><small>只统计真实记录</small></div><div class="life-nest-counts"><article><b>${todayPhotos.length}</b><span>张照片</span></article><article><b>${todayMessages.length}</b><span>句话</span></article><article><b>${todayDone.length}</b><span>件完成</span></article></div></section><section class="life-nest-section"><div class="life-nest-title"><span>${shelf?'窗边回忆':'小屋还很安静'}</span>${memory?'<small>重新遇见</small>':''}</div>${shelf?`<article class="life-nest-shelf ${shelf.image?'has-image':''}">${shelf.image?`<img src="${esc(shelf.image)}" alt="共同回忆">`:''}<div><b>${esc(shelf.title)}</b><p>${esc(shelf.text)}</p></div></article>`:'<div class="life-data-empty">上传一张照片或留一句话，<br>小屋就会慢慢有内容。</div>'}</section><section class="life-nest-section"><div class="life-nest-title"><span>给小屋添一点</span></div><div class="life-nest-actions"><button data-life-open="gallery">${icon('image')} 放一张照片</button><button data-life-open="messages">${icon('chat-circle-text')} 留一句话</button><button data-life-open="wishes">${icon('heart')} 贴一张心愿</button></div></section></div>`); }
   function horoscopeSheet() { const cards=(window.PufferLife?.getHoroscopes?.()||[]).map(x=>`<article class="life-zodiac-person"><span>${esc(x.meta.name)} · ${'★'.repeat(x.data.stars)}</span><b>${esc(x.data.overall)}</b><p>相处提醒：${esc(x.data.love)}</p></article>`).join('');openSheet(`<section class="life-ritual-sheet-hero life-zodiac-hero"><div><span>胖头鱼观星处</span><h2>今天的双人运势</h2><p>把两个人的星星，放在同一片夜空下看。</p></div><img src="assets/puffer-zodiac.webp?v=1" alt="胖头鱼观星"></section><div class="life-zodiac-pair">${cards}</div>`); }
   function fortuneSheet() { const s=state(),me=s.settings?.me||'a',ta=me==='a'?'b':'a',names=s.settings?.partners||{},signs=s.fortune?.date===dayKey()?s.fortune.by||{}:{},card=(person)=>{const f=signs[person],pending=person===me?'闭上眼默念一件心愿，再摇一支签。':'等 TA 来摇今天的签。';return `<article class="life-zodiac-person life-fortune-person ${f?'is-drawn':'is-pending'}"><span>${esc(names[person]||'TA')} 的签</span><b>${esc(f?`${f.level}签 · ${f.text}`:'还没有抽签')}</b><p>${esc(f?f.tip:pending)}</p></article>`};openSheet(`<section class="life-ritual-sheet-hero life-fortune-hero"><div><span>胖头鱼祈福处</span><h2>今日抽签</h2><p>今天的心愿，也想和 TA 一起知道。</p></div><img src="assets/puffer-fortune.webp?v=1" alt="胖头鱼祈福"></section><div class="life-zodiac-pair life-fortune-pair">${card(me)}${card(ta)}</div>${signs[me]?'':`<button class="life-sheet-primary" data-life-draw-fortune>摇一支签</button>`}`); }
-  function moodSheet() { const s=state(),me=s.settings?.me||'a',old=s.dailyStatus?.[dayKey()]?.[me]||{},current=old.mood||'平静',pet=statusPet(current),items=[['开心','今天有一点小雀跃','puffer-state-happy.webp'],['想你','想把这份心情告诉 TA','puffer-state-missing.webp'],['平静','慢慢来，也很好','puffer-state-quiet.webp'],['有点累','先照顾好自己','puffer-state-quiet.webp']];openSheet(`<section class="life-mood-hero"><div><span>今天的我</span><h2>现在是什么心情？</h2><p id="lifeMoodPetLabel">${esc(current==='平静'?'安静陪伴':current)}</p></div><img data-life-mood-pet src="assets/${pet.asset}" alt="${esc(pet.label)}胖头鱼"></section><div class="life-mood-options">${items.map(([name,desc,asset])=>`<button class="life-mood-option ${current===name?'active':''}" data-life-mood="${name}" data-life-mood-asset="${asset}"><span class="life-mood-option-icon">${icon(name==='开心'?'smiley':name==='想你'?'heart':name==='平静'?'moon':'coffee')}</span><span><b>${name}</b><small>${desc}</small></span><i>${current===name?icon('check-circle'):icon('circle')}</i></button>`).join('')}</div><label class="life-field-label" for="lifeMoodNote">想对 TA 说一句（可选）</label><textarea id="lifeMoodNote" placeholder="例如：晚上见，想和你一起吃饭。">${esc(old.text||'')}</textarea><button class="life-sheet-primary" data-save-mood>记录今天的状态</button>`); }
+  function applyMoodSelection(value) { const mood=String(value||''),active=[...mask.querySelectorAll('[data-life-mood]')].find(button=>button.dataset.lifeMood===mood);if(!active)return;mask.querySelectorAll('[data-life-mood]').forEach(button=>{button.classList.toggle('active',button===active);const mark=button.querySelector('i');if(mark)mark.innerHTML=button===active?icon('check-circle'):icon('circle');});const hidden=mask.querySelector('#lifeMoodValue');if(hidden)hidden.value=mood;const pet=statusPet(mood),img=mask.querySelector('[data-life-mood-pet]'),label=mask.querySelector('#lifeMoodPetLabel');if(img){img.src=`assets/${pet.asset}`;img.alt=`${pet.label}胖头鱼`;}if(label)label.textContent=pet.label; }
+  function moodSheet() { const s=state(),me=s.settings?.me||'a',old=s.dailyStatus?.[dayKey()]?.[me]||{},current=old.mood||'平静',pet=statusPet(current),items=[['开心','今天有一点小雀跃','puffer-state-happy.webp'],['想你','想把这份心情告诉 TA','puffer-state-missing.webp'],['平静','慢慢来，也很好','puffer-state-quiet.webp'],['有点累','先照顾好自己','puffer-state-quiet.webp']];openSheet(`<section data-life-draft="mood:${dayKey()}"><section class="life-mood-hero"><div><span>今天的我</span><h2>现在是什么心情？</h2><p id="lifeMoodPetLabel">${esc(current==='平静'?'安静陪伴':current)}</p></div><img data-life-mood-pet src="assets/${pet.asset}" alt="${esc(pet.label)}胖头鱼"></section><input id="lifeMoodValue" data-life-draft-field="mood" type="hidden" value="${esc(current)}"><div class="life-mood-options">${items.map(([name,desc,asset])=>`<button class="life-mood-option ${current===name?'active':''}" data-life-mood="${name}" data-life-mood-asset="${asset}"><span class="life-mood-option-icon">${icon(name==='开心'?'smiley':name==='想你'?'heart':name==='平静'?'moon':'coffee')}</span><span><b>${name}</b><small>${desc}</small></span><i>${current===name?icon('check-circle'):icon('circle')}</i></button>`).join('')}</div><label class="life-field-label" for="lifeMoodNote">想对 TA 说一句（可选）</label><textarea id="lifeMoodNote" data-life-draft-field="note" maxlength="240" placeholder="例如：晚上见，想和你一起吃饭。">${esc(old.text||'')}</textarea><button class="life-sheet-primary" data-save-mood>记录今天的状态</button></section>`); }
   function presenceSheet(){const info=window.PufferLife?.getPresence?.()||{},partner=presenceLabel(info.partner),minutes=info.partner?.locationUpdatedAt?Math.max(0,Math.floor((Date.now()-Number(info.partner.locationUpdatedAt))/60000)):0,distance=Number.isFinite(info.partner?.distanceKm)?`距你约 ${info.partner.distanceKm<10?info.partner.distanceKm.toFixed(1):Math.round(info.partner.distanceKm)} km`:'双方开启位置共享后，会显示相距距离。';openSheet(`<section class="life-presence-sheet"><span class="life-presence-sheet-icon">${icon('map-pin')}</span><div><small>共同位置</small><h2>${esc(partner.text)}</h2><p>${esc(distance)}${info.partner?.locationUpdatedAt?`<br>位置更新于 ${minutes<1?'刚刚':`${minutes} 分钟前`}`:''}</p></div></section><div class="life-presence-note">位置只在网页打开时更新，不显示具体地址；你随时可以停止共享。</div><div class="life-review-actions"><button data-life-presence-refresh>更新状态</button>${info.mine?.sharing?'<button class="life-sheet-primary" data-life-presence-stop>停止共享位置</button>':'<button class="life-sheet-primary" data-life-presence-start>开启位置共享</button>'}</div>`);}
-  const reviewShown=new Set();
+  let reviewOfferTimer=null;
   function rangeId(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;}
   function reviewRange(type){const now=new Date(),start=new Date(now),end=new Date(now);start.setHours(0,0,0,0);end.setHours(23,59,59,999);if(type==='week'){end.setDate(end.getDate()-1);start.setTime(end.getTime());start.setDate(start.getDate()-6);start.setHours(0,0,0,0);}if(type==='month'){end.setDate(0);end.setHours(23,59,59,999);start.setTime(end.getTime());start.setDate(1);start.setHours(0,0,0,0);}return {start,end,id:`${type}:${rangeId(start)}:${rangeId(end)}`};}
   function inRange(value,range){const time=new Date(value||0).getTime();return Number.isFinite(time)&&time>=range.start.getTime()&&time<=range.end.getTime();}
   function reviewTravelMemory(s,range,type){const now=new Date(),travels=live(s.travels).filter(item=>item.status!=='wish'),dated=travels.map(item=>({item,date:new Date(`${item.date||''}T12:00:00`)})).filter(row=>Number.isFinite(row.date.getTime())),lastYear=dated.find(row=>row.date.getFullYear()===now.getFullYear()-1&&row.date.getMonth()===now.getMonth()&&row.date.getDate()===now.getDate()),during=dated.find(row=>row.date>=range.start&&row.date<=range.end),picked=lastYear||during;if(!picked)return null;const prefix=lastYear?'去年今天':type==='week'?'上周':type==='month'?'上个月':'今天';return {item:picked.item,label:`${prefix}，你们去了 ${picked.item.place||'一个特别的地方'}。`};}
   function reviewSheet(type){const s=state(),range=reviewRange(type),messages=live(s.messages).filter(x=>inRange(x.createdAt,range)),photos=[...live(s.gallery),...messages.filter(x=>x.imageUrl||x.imageDataUrl)].filter(x=>x.dataUrl||x.url||x.imageUrl||x.imageDataUrl),todos=live(s.todos).filter(x=>inRange(x.updatedAt||x.createdAt||x.date,range)),done=todos.filter(x=>x.done).length,trainings=live(s.trainings).filter(x=>inRange(x.updatedAt||x.createdAt||x.date,range)),moods=[];Object.values(s.dailyStatus||{}).forEach(day=>Object.values(day||{}).forEach(item=>{if(inRange(item.updatedAt,range)&&item.mood)moods.push(item.mood);}));const cfg={night:{eyebrow:'今晚一起回顾',title:'把今天收好',copy:'把今天的小事，<br>留在你们这里。',asset:'puffer-review-night.png',action:'收藏今天'},week:{eyebrow:'上周回顾',title:'这一周的你们',copy:'这一周的日子，<br>慢慢成为共同生活。',asset:'puffer-review-week.png',action:'收下这一周'},month:{eyebrow:'上月回顾',title:'这个月的你们',copy:'普通的日子，<br>也慢慢发光。',asset:'puffer-review-month.png',action:'收下这个月'}}[type],photo=photos[0],memory=reviewTravelMemory(s,range,type),moodText=[...new Set(moods)].slice(0,2).join(' · ')||'还没有留下心情',travelPhoto=memory&&(memory.item.dataUrl||memory.item.url);openSheet(`<section class="life-review-hero life-review-${type}"><div><span>${cfg.eyebrow}</span><h2>${cfg.title}</h2><p>${cfg.copy}</p></div><img src="assets/${cfg.asset}" alt="胖头鱼回顾"></section><section class="life-review-stats"><article><b>${messages.length}</b><span>句留言</span></article><article><b>${photos.length}</b><span>张照片</span></article><article><b>${done}</b><span>项完成</span></article><article><b>${trainings.length}</b><span>次训练</span></article></section><section class="life-review-list"><article><span>${icon('smiley')}</span><div><small>这段时间的心情</small><b>${esc(moodText)}</b></div></article><article><span>${icon('chat-circle-text')}</span><div><small>留给彼此的话</small><b>${messages.length?`已经说了 ${messages.length} 句话，<br>继续把日常告诉 TA。`:'还没有留下话，<br>现在说一句也很好。'}</b></div></article>${memory?`<article class="life-review-travel">${travelPhoto?`<img src="${esc(travelPhoto)}" alt="${esc(memory.item.place||'旅行回忆')}">`:`<span>${icon('map-pin')}</span>`}<div><small>旅行回忆</small><b>${esc(memory.label)}</b>${memory.item.note?`<p>${esc(memory.item.note)}</p>`:''}</div></article>`:''}${photo?`<article class="life-review-photo"><img src="${esc(photo.dataUrl||photo.url||photo.imageDataUrl||photo.imageUrl)}" alt="这段时间的照片"><div><small>共同照片</small><b>这一张，<br>也值得被好好记住。</b></div></article>`:''}</section><div class="life-review-actions"><button data-life-review-later="${range.id}">晚点再看</button><button class="life-sheet-primary" data-life-review-save="${range.id}">${cfg.action}</button></div>`);}
-  function maybeOfferReview(){const now=new Date(),type=now.getDate()===1?'month':now.getDay()===1?'week':now.getHours()>=20?'night':'';if(!type)return;const key=`puffer-review-seen:${reviewRange(type).id}:${state().settings?.me||'a'}`;if(reviewShown.has(key)||localStorage.getItem(key))return;reviewShown.add(key);setTimeout(()=>reviewSheet(type),650);}
+  function reviewOfferType(now=new Date()){if(now.getDate()===1)return 'month';if(now.getDay()===1)return 'week';return now.getHours()>=20?'night':'';}
+  function reviewOfferBlocked(){return document.hidden||activeLifeTab!=='today'||mask.classList.contains('show')||(!liveMessageNotice.hidden&&liveMessageNotice.classList.contains('show'));}
+  function reviewAutoMarker(type,current=state()){const me=current?.settings?.me||'a';return {key:`puffer-review-auto-shown:${me}`,value:`${dayKey()}:${type}`};}
+  function reviewReentryType(){const type=reviewOfferType(),current=state();if(!type||!current)return '';const marker=reviewAutoMarker(type,current),seenKey=`puffer-review-seen:${reviewRange(type).id}:${current.settings?.me||'a'}`;return localStorage.getItem(marker.key)===marker.value||localStorage.getItem(seenKey)?type:'';}
+  function openCompanionOrReview(){const type=reviewReentryType();return type?reviewSheet(type):companionResponseSheet();}
+  function maybeOfferReview(){
+    if(reviewOfferBlocked())return false;
+    const type=reviewOfferType();
+    if(!type)return false;
+    const current=state();
+    if(!current)return false;
+    const marker=reviewAutoMarker(type,current),seenKey=`puffer-review-seen:${reviewRange(type).id}:${current.settings?.me||'a'}`;
+    if(localStorage.getItem(marker.key)===marker.value||localStorage.getItem(seenKey)||reviewOfferTimer)return false;
+    const scheduledDay=dayKey();
+    reviewOfferTimer=setTimeout(()=>{
+      reviewOfferTimer=null;
+      if(reviewOfferBlocked()||dayKey()!==scheduledDay)return;
+      const freshType=reviewOfferType(),freshState=state();
+      if(!freshType||!freshState)return;
+      const freshMarker=reviewAutoMarker(freshType,freshState),freshSeenKey=`puffer-review-seen:${reviewRange(freshType).id}:${freshState.settings?.me||'a'}`;
+      if(localStorage.getItem(freshMarker.key)===freshMarker.value||localStorage.getItem(freshSeenKey))return;
+      localStorage.setItem(freshMarker.key,freshMarker.value);
+      document.querySelector('#lifeCompanionNudge')?.remove();
+      reviewSheet(freshType);
+    },550);
+    return true;
+  }
   root.addEventListener('click', e => { const audience=e.target.closest('[data-hydration-audience]');if(audience){e.stopImmediatePropagation();hydrationAudience=audience.dataset.hydrationAudience==='partner'?'partner':'me';render();return;}const gauge=e.target.closest('[data-life-hydration-kind]');if(gauge&&hydrationAudience==='partner'){e.stopImmediatePropagation();hydrationSheet(gauge.dataset.lifeHydrationKind,'partner');} }, true);
   root.addEventListener('click', e => { const tab=e.target.closest('[data-life-tab]'); if(tab) return selectTab(tab.dataset.lifeTab); const gauge=e.target.closest('[data-life-hydration-kind]');if(gauge)return hydrationSheet(gauge.dataset.lifeHydrationKind); const open=e.target.closest('[data-life-open]'); if(open){const map={todo:calendarSheet,messages:messageSheet,gallery:gallerySheet,travel:travelSheet,training:trainingSheet,wishes:wishSheet,horoscope:horoscopeSheet,fortune:fortuneSheet,presence:presenceSheet,hydration:hydrationSheet,challenge:challengeSheet,music:()=>openSheet(window.PufferMusicView?.renderDetailMarkup?.()||'<h2>今日音乐</h2>')};return map[open.dataset.lifeOpen]?.();} if(e.target.closest('[data-life-music]')) return document.querySelector('#musicFloatToggle')?.click(); if(e.target.closest('[data-life-settings]')) return document.querySelector('#settingsBtn')?.click(); const toggle=e.target.closest('[data-life-todo-toggle],[data-life-toggle-todo]');if(toggle)return window.PufferLife.toggleTodo(toggle.dataset.lifeTodoToggle||toggle.dataset.lifeToggleTodo); const add=e.target.closest('[data-life-add-todo]');if(add)return todoSheet();const edit=e.target.closest('[data-life-edit-todo]');if(edit)return todoSheet(live(state().todos).find(t=>t.id===edit.dataset.lifeEditTodo));const part=e.target.closest('[data-life-participation]');if(part){const me=state().settings?.me||'a';if(part.dataset.lifePerson!==me)return;return ({fortune:fortuneSheet,mood:moodSheet,message:messageSheet,todo:calendarSheet})[part.dataset.lifeParticipation]?.();} });
-  mask.addEventListener('click', async e => { if(e.target===mask||e.target.closest('[data-sheet-close]')) return closeSheet();if(e.target.closest('[data-travel-open-add]'))return travelSheet('add');if(e.target.closest('[data-travel-back-timeline]'))return travelSheet();const travelView=e.target.closest('[data-travel-view]');if(travelView)return travelSheet(travelView.dataset.travelView);if(e.target.closest('[data-travel-close-panel]'))return travelSheet();if(e.target.closest('[data-travel-detail]'))return travelSheet('footprints');const travelDelete=e.target.closest('[data-delete-travel]');if(travelDelete){if(window.PufferLife?.deleteTravel?.(travelDelete.dataset.deleteTravel))travelSheet();return;}if(e.target.closest('[data-travel-locate]')){const label=mask.querySelector('#lifeTravelLocationText');if(!navigator.geolocation){if(label)label.textContent='当前浏览器不支持定位';return;}if(label)label.textContent='正在获取当前位置…';navigator.geolocation.getCurrentPosition(position=>{const lat=mask.querySelector('#lifeTravelLat'),lng=mask.querySelector('#lifeTravelLng');if(lat)lat.value=position.coords.latitude;if(lng)lng.value=position.coords.longitude;if(label)label.textContent='已选择当前位置';},()=>{if(label)label.textContent='没有获得位置权限，可只填写地点';},{enableHighAccuracy:false,timeout:8000,maximumAge:300000});return;}if(e.target.closest('[data-save-travel]')){const data={place:mask.querySelector('#lifeTravelPlace')?.value,date:mask.querySelector('#lifeTravelDate')?.value,status:mask.querySelector('#lifeTravelStatus')?.value,note:mask.querySelector('#lifeTravelNote')?.value,lat:mask.querySelector('#lifeTravelLat')?.value,lng:mask.querySelector('#lifeTravelLng')?.value},file=mask.querySelector('#lifeTravelPhoto')?.files?.[0],ok=await window.PufferLife?.addTravel?.(data,file);if(ok)travelSheet();return;} const hydrationKind=e.target.closest('[data-hydration-select]');if(hydrationKind)return hydrationSheet(hydrationKind.dataset.hydrationSelect);const hydrationPreset=e.target.closest('[data-hydration-ml]');if(hydrationPreset){const input=mask.querySelector('#lifeHydrationMl');if(input)input.value=hydrationPreset.dataset.hydrationMl;mask.querySelectorAll('[data-hydration-ml]').forEach(button=>button.classList.toggle('active',button===hydrationPreset));return;}const hydrationSave=e.target.closest('[data-save-hydration]');if(hydrationSave){const ok=window.PufferLife?.addHydration?.(hydrationSave.dataset.saveHydration,mask.querySelector('#lifeHydrationMl')?.value);if(ok)closeSheet();return;}const hydrationDelete=e.target.closest('[data-delete-hydration]');if(hydrationDelete){if(window.PufferLife?.deleteHydration?.(hydrationDelete.dataset.deleteHydration))hydrationSheet();return;} const shift=e.target.closest('[data-life-calendar-shift]');if(shift){calendarCursor.setMonth(calendarCursor.getMonth()+Number(shift.dataset.lifeCalendarShift));return calendarSheet();} const day=e.target.closest('[data-life-training-day]');if(day)return trainingSheet(day.dataset.lifeTrainingDay);const addTrain=e.target.closest('[data-life-add-training]');if(addTrain)return trainingEdit();const editTrain=e.target.closest('[data-life-edit-training]');if(editTrain)return trainingEdit(live(state().trainings).find(t=>t.id===editTrain.dataset.lifeEditTraining));const mood=e.target.closest('[data-life-mood]');if(mood){mask.querySelectorAll('[data-life-mood]').forEach(x=>{x.classList.toggle('active',x===mood);const mark=x.querySelector('i');if(mark)mark.innerHTML=x===mood?icon('check-circle'):icon('circle');});const pet=statusPet(mood.dataset.lifeMood),img=mask.querySelector('[data-life-mood-pet]'),label=mask.querySelector('#lifeMoodPetLabel');if(img){img.src=`assets/${pet.asset}`;img.alt=`${pet.label}胖头鱼`;}if(label)label.textContent=pet.label;return;} if(e.target.closest('[data-save-mood]')){const ok=window.PufferLife.setDailyStatus(state().settings?.me||'a',mask.querySelector('[data-life-mood].active')?.dataset.lifeMood||'',mask.querySelector('#lifeMoodNote')?.value||'');if(ok)closeSheet();return;}const todo=e.target.closest('[data-save-todo]');if(todo){const data={text:mask.querySelector('#lifeTodoText')?.value,date:mask.querySelector('#lifeTodoDate')?.value,priority:mask.querySelector('#lifeTodoPriority')?.value};const ok=todo.dataset.saveTodo?window.PufferLife.updateTodo(todo.dataset.saveTodo,data):window.PufferLife.addTodo(data);if(ok)closeSheet();return;}const train=e.target.closest('[data-save-training]');if(train){const data={content:mask.querySelector('#lifeTrainContent')?.value,date:mask.querySelector('#lifeTrainDate')?.value,muscle:mask.querySelector('#lifeTrainMuscle')?.value,duration:mask.querySelector('#lifeTrainDuration')?.value,note:mask.querySelector('#lifeTrainNote')?.value};const ok=train.dataset.saveTraining?window.PufferLife.updateTraining(train.dataset.saveTraining,data):window.PufferLife.addTraining(data);if(ok)closeSheet();return;}if(e.target.closest('[data-save-message]')){const file=mask.querySelector('#lifeMessageImage')?.files?.[0],text=mask.querySelector('#lifeMessageText')?.value||'',ok=file?await window.PufferLife.addMessageFile(file,text):window.PufferLife.addMessage(text);if(ok)closeSheet();return;}if(e.target.closest('[data-save-photo]')){const file=mask.querySelector('#lifePhotoFile')?.files?.[0],ok=file&&await window.PufferLife.addGalleryFile(file,mask.querySelector('#lifePhotoCaption')?.value);if(ok)closeSheet();return;}if(e.target.closest('[data-save-wish]')){if(window.PufferLife.addWish({text:mask.querySelector('#lifeWishText')?.value,icon:'✨'}))closeSheet();return;}const light=e.target.closest('[data-life-light-wish]');if(light){window.PufferLife.lightWish(light.dataset.lifeLightWish);return closeSheet();}if(e.target.closest('[data-life-draw-fortune]')){window.PufferLife.drawFortuneNative();return fortuneSheet();} });
-  document.addEventListener('click', e => { if(e.target.closest('#lifeCompanionFloat')) return companionResponseSheet(); if(e.target.closest('[data-life-open="nest"]')) return nestSheet(); });
+  mask.addEventListener('click', async e => { const submit=e.target.closest(lifeSubmitSelector);if(submit){e.preventDefault();return handleLifeSubmission(submit);}if(e.target===mask||e.target.closest('[data-sheet-close]')) return closeSheet();if(e.target.closest('[data-travel-open-add]'))return travelSheet('add');if(e.target.closest('[data-travel-back-timeline]'))return travelSheet();const travelView=e.target.closest('[data-travel-view]');if(travelView)return travelSheet(travelView.dataset.travelView);if(e.target.closest('[data-travel-close-panel]'))return travelSheet();if(e.target.closest('[data-travel-detail]'))return travelSheet('footprints');const travelDelete=e.target.closest('[data-delete-travel]');if(travelDelete){if(window.PufferLife?.deleteTravel?.(travelDelete.dataset.deleteTravel))travelSheet();return;}if(e.target.closest('[data-travel-locate]')){const label=mask.querySelector('#lifeTravelLocationText');if(!navigator.geolocation){if(label)label.textContent='当前浏览器不支持定位';return;}if(label)label.textContent='正在获取当前位置…';navigator.geolocation.getCurrentPosition(position=>{const lat=mask.querySelector('#lifeTravelLat'),lng=mask.querySelector('#lifeTravelLng');if(lat)lat.value=position.coords.latitude;if(lng)lng.value=position.coords.longitude;if(label)label.textContent='已选择当前位置';},()=>{if(label)label.textContent='没有获得位置权限，可只填写地点';},{enableHighAccuracy:false,timeout:8000,maximumAge:300000});return;}const hydrationKind=e.target.closest('[data-hydration-select]');if(hydrationKind)return hydrationSheet(hydrationKind.dataset.hydrationSelect);const hydrationPreset=e.target.closest('[data-hydration-ml]');if(hydrationPreset){const input=mask.querySelector('#lifeHydrationMl');if(input)input.value=hydrationPreset.dataset.hydrationMl;mask.querySelectorAll('[data-hydration-ml]').forEach(button=>button.classList.toggle('active',button===hydrationPreset));return;}const hydrationDelete=e.target.closest('[data-delete-hydration]');if(hydrationDelete){if(window.PufferLife?.deleteHydration?.(hydrationDelete.dataset.deleteHydration))hydrationSheet();return;} const shift=e.target.closest('[data-life-calendar-shift]');if(shift){calendarCursor.setMonth(calendarCursor.getMonth()+Number(shift.dataset.lifeCalendarShift));return calendarSheet();} const day=e.target.closest('[data-life-training-day]');if(day)return trainingSheet(day.dataset.lifeTrainingDay);const addTrain=e.target.closest('[data-life-add-training]');if(addTrain)return trainingEdit();const editTrain=e.target.closest('[data-life-edit-training]');if(editTrain)return trainingEdit(live(state().trainings).find(t=>t.id===editTrain.dataset.lifeEditTraining));const mood=e.target.closest('[data-life-mood]');if(mood){mask.querySelectorAll('[data-life-mood]').forEach(x=>{x.classList.toggle('active',x===mood);const mark=x.querySelector('i');if(mark)mark.innerHTML=x===mood?icon('check-circle'):icon('circle');});const pet=statusPet(mood.dataset.lifeMood),img=mask.querySelector('[data-life-mood-pet]'),label=mask.querySelector('#lifeMoodPetLabel');if(img){img.src=`assets/${pet.asset}`;img.alt=`${pet.label}胖头鱼`;}if(label)label.textContent=pet.label;return;}const light=e.target.closest('[data-life-light-wish]');if(light){window.PufferLife.lightWish(light.dataset.lifeLightWish);return closeSheet();} });
+  document.addEventListener('click', e => { if(e.target.closest('#lifeCompanionFloat')) return openCompanionOrReview(); if(e.target.closest('[data-life-open="nest"]')) return nestSheet(); });
   document.addEventListener('pointermove', () => { const pet=document.querySelector('#lifeCompanionFloat');if(pet?.classList.contains('is-dragging')) positionCompanionNudge(); });
   document.addEventListener('pointerup', () => { requestAnimationFrame(positionCompanionNudge); });
   mask.addEventListener('click', e => {const open=e.target.closest('[data-life-open]');if(open){return ({gallery:gallerySheet,travel:travelSheet,messages:messageSheet,fortune:fortuneSheet,mood:moodSheet,todo:calendarSheet,training:trainingSheet,wishes:wishSheet,horoscope:horoscopeSheet,presence:presenceSheet,nest:nestSheet,hydration:hydrationSheet,challenge:challengeSheet,music:()=>openSheet(window.PufferMusicView?.renderDetailMarkup?.()||'<h2>今日音乐</h2>')})[open.dataset.lifeOpen]?.();}const action=e.target.closest('[data-life-companion-action]');if(action){return ({challenge:challengeSheet,fortune:fortuneSheet,mood:moodSheet,message:messageSheet,todo:calendarSheet,review:()=>reviewSheet('night'),guide:()=>companionResponseSheet(companionCue(state()))})[action.dataset.lifeCompanionAction]?.();}const saved=e.target.closest('[data-life-review-save]');if(saved){localStorage.setItem(`puffer-review-seen:${saved.dataset.lifeReviewSave}:${state().settings?.me||'a'}`,'1');return closeSheet();}if(e.target.closest('[data-life-review-later]'))return closeSheet();});
@@ -217,7 +619,26 @@ openSheet(`<div class="life-travel-page life-travel-timeline-page"><header><butt
   mask.addEventListener('change', e => {const input=e.target.closest('#lifeTravelPhoto');if(!input)return;const label=mask.querySelector('#lifeTravelPhotoText');if(label)label.textContent=input.files?.[0]?.name||'加入一张真实照片（可选）';});
   mask.addEventListener('click', e => { if(!e.target.closest('[data-life-remove-image]')) return; const input=mask.querySelector('#lifeMessageImage'),preview=mask.querySelector('#lifeMessageImagePreview');if(input)input.value='';if(preview){if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);preview.hidden=true;preview.innerHTML='';delete preview.dataset.objectUrl;} });
   mask.addEventListener('click', e => { const del=e.target.closest('[data-life-delete-gallery]'); if(!del)return; if(window.PufferLife?.deleteGallery?.(del.dataset.lifeDeleteGallery)){ gallerySheet(); } });
-  window.addEventListener('puffer-state-change', () => {render();maybeOfferReview();});
+  mask.addEventListener('click', e => { const mood=e.target.closest('[data-life-mood]');if(mood){applyMoodSelection(mood.dataset.lifeMood);mask.querySelector('#lifeMoodValue')?.dispatchEvent(new Event('change',{bubbles:true}));}if(e.target.closest('[data-hydration-ml]'))requestAnimationFrame(()=>activeSheetDraft?.flush()); });
+  liveMessageNotice.addEventListener('click', () => { hideLiveMessageNotice(true); window.dispatchEvent(new CustomEvent('puffer-life-messages')); });
+  window.addEventListener('pagehide', () => finishActiveSheetDraft(true));
+  document.addEventListener('visibilitychange', () => { if(document.hidden)activeSheetDraft?.flush();else maybeOfferReview(); });
+  window.addEventListener('puffer-modal-open', () => beginOverlaySession('app-modal', document.querySelector('#modalClose')));
+  window.addEventListener('puffer-modal-close', () => finishOverlaySession('app-modal', closingOverlayFromHistory));
+  window.addEventListener('popstate', event => {
+    if (mask.classList.contains('show')) return closeSheet(true);
+    const appModal = document.querySelector('#modalMask.show');
+    if (appModal) {
+      closingOverlayFromHistory = true;
+      document.querySelector('#modalClose')?.click();
+      closingOverlayFromHistory = false;
+      return;
+    }
+    if (event.state?.pufferOverlay && !overlayHistoryKind) history.back();
+  });
+  window.addEventListener('puffer-state-change', () => {render();refreshOpenMessageSheet();maybeOfferReview();});
+  window.addEventListener('puffer-new-messages', event => showLiveMessageNotice(event.detail));
+  window.addEventListener('puffer-sync-status', refreshSyncUi);
   window.addEventListener('puffer-presence-change', render);
   window.addEventListener('puffer-life-home', () => { selectTab('today'); render(); });
   window.addEventListener('puffer-life-messages', () => { selectTab('things'); render(); requestAnimationFrame(() => messageSheet()); });
@@ -226,5 +647,5 @@ openSheet(`<div class="life-travel-page life-travel-timeline-page"><header><butt
   window.addEventListener('puffer-life-hydration', () => { hydrationAudience='me'; }, true);
   window.addEventListener('puffer-life-hydration', () => { selectTab('today'); render(); requestAnimationFrame(() => hydrationSheet()); });
   function openNotificationTarget(kind) { if(kind==='messages')window.dispatchEvent(new CustomEvent('puffer-life-messages'));else if(kind==='todos'||kind==='todo')window.dispatchEvent(new CustomEvent('puffer-life-todo'));else if(kind==='gallery')window.dispatchEvent(new CustomEvent('puffer-life-gallery'));else if(kind==='hydration')window.dispatchEvent(new CustomEvent('puffer-life-hydration')); }
-  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();maybeOfferReview();const url=new URL(location.href),target=url.searchParams.get('open');if(target){url.searchParams.delete('open');history.replaceState(null,'',url.pathname+url.search+url.hash);requestAnimationFrame(()=>openNotificationTarget(target));} });
+  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();const url=new URL(location.href),target=url.searchParams.get('open');if(target){url.searchParams.delete('open');history.replaceState(null,'',url.pathname+url.search+url.hash);requestAnimationFrame(()=>openNotificationTarget(target));}else maybeOfferReview(); });
 })();

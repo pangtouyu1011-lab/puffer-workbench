@@ -7,15 +7,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#F2F2F7" />
   <title>大童小孙之家</title>
-  <link rel="icon" type="image/png" href="assets/puffer.webp?v=20260817-local-fonts-sw-2" />
-  <link rel="apple-touch-icon" href="assets/puffer-180.png?v=20260817-local-fonts-sw-2" />
-  <link rel="manifest" href="site.webmanifest?v=20260817-local-fonts-sw-2" />
+  <link rel="icon" type="image/png" href="assets/puffer.webp?v=20260818-review-return-scroll-1" />
+  <link rel="apple-touch-icon" href="assets/puffer-180.png?v=20260818-review-return-scroll-1" />
+  <link rel="manifest" href="site.webmanifest?v=20260818-review-return-scroll-1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="大童小孙之家" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script>
     (() => {
-      const pageVersion = '20260817-local-fonts-sw-2';
+      const pageVersion = '20260818-review-return-scroll-1';
       const reloadKey = 'puffer-last-reload-version';
       fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
         .then((response) => response.ok ? response.json() : null)
@@ -28,20 +28,33 @@
           location.replace(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
         })
         .catch(() => {});
-      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(reg => reg.update()).catch(() => {});
+      if ('serviceWorker' in navigator) {
+        const warmCache = registration => {
+          const send = () => (navigator.serviceWorker.controller || registration.active)?.postMessage({ type: 'puffer-warm-cache' });
+          if ('requestIdleCallback' in window) window.requestIdleCallback(send, { timeout: 2000 });
+          else setTimeout(send, 800);
+        };
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(registration => {
+          registration.update().catch(() => {});
+          navigator.serviceWorker.ready.then(warmCache).catch(() => {});
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            navigator.serviceWorker.ready.then(warmCache).catch(() => {});
+          }, { once: true });
+        }).catch(() => {});
+      }
     })();
   </script>
-  <link rel="stylesheet" href="assets/fonts/fonts.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="styles.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="legacy-dashboard.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="legacy-training.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="legacy-navigation.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="assets/icons/phosphor/phosphor-regular.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="life.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="life-ritual.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="life-dashboard.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="life-dashboard-music.css?v=20260817-local-fonts-sw-2" />
-  <link rel="stylesheet" href="life-complete-state.css?v=20260817-local-fonts-sw-2" />
+  <link rel="stylesheet" href="assets/fonts/fonts.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="styles.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="legacy-dashboard.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="legacy-training.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="legacy-navigation.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="assets/icons/phosphor/phosphor-regular.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="life.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="life-ritual.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="life-dashboard.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="life-dashboard-music.css?v=20260818-review-return-scroll-1" />
+  <link rel="stylesheet" href="life-complete-state.css?v=20260818-review-return-scroll-1" />
   <style>
 /* ===== 仪表板排版优化 ===== */
 .dash-top { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0; }
@@ -599,16 +612,16 @@
   <div class="toast" id="toast"></div>
 
   <!-- QRCode 本地加载，避免外部 CDN 故障导致迁移码不可用 -->
-  <script src="assets/qrcodejs-1.0.0.min.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="challenge-questions.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="features/music/music-data.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="features/music/music-state.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="features/music/music-recommend.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="features/music/music-reason.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="features/music/music-view.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="app.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="push.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="life.js?v=20260817-local-fonts-sw-2"></script>
-  <script src="life-complete-state.js?v=20260817-local-fonts-sw-2"></script>
+  <script src="assets/qrcodejs-1.0.0.min.js?v=20260818-review-return-scroll-1"></script>
+  <script src="challenge-questions.js?v=20260818-review-return-scroll-1"></script>
+  <script src="features/music/music-data.js?v=20260818-review-return-scroll-1"></script>
+  <script src="features/music/music-state.js?v=20260818-review-return-scroll-1"></script>
+  <script src="features/music/music-recommend.js?v=20260818-review-return-scroll-1"></script>
+  <script src="features/music/music-reason.js?v=20260818-review-return-scroll-1"></script>
+  <script src="features/music/music-view.js?v=20260818-review-return-scroll-1"></script>
+  <script src="app.js?v=20260818-review-return-scroll-1"></script>
+  <script src="push.js?v=20260818-review-return-scroll-1"></script>
+  <script src="life.js?v=20260818-review-return-scroll-1"></script>
+  <script src="life-complete-state.js?v=20260818-review-return-scroll-1"></script>
 </body>
 </html>
