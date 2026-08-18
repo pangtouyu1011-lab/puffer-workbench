@@ -24,7 +24,7 @@
     if (day === 0 || day === 6) return { label: '周末悠闲', tags: ['weekend','slow'] };
     return { label: '工作日慢慢进入状态', tags: ['workweek','warm'] };
   }
-  function musicSongKey(song) { return (song.source || '') + ':' + (song.id || song.artist + ':' + song.title); }
+  function musicSongKey(song) { return song.key || ((song.source || '') + ':' + (song.id || song.artist + ':' + song.title)); }
   const musicSlotCache = new Map();
   function musicSettings() { return MusicState.getSettings(); }
   function musicSlotKey(part, sourceFilter, date) {
@@ -71,11 +71,16 @@
   function pickMusicFor(part, excluded, sourceFilter) {
     const weather = musicWeatherProfile(); const week = musicWeekProfile();
     const wanted = new Set([part, ...weather.tags, ...week.tags]);
-    const styleWanted = new Set(NETEASE_PROFILE_TAGS);
     const seed = ctx.todayKey() + part + String(ctx.getState()._weather && ctx.getState()._weather.code);
     const settings = musicSettings(); const history = settings._musicHistory.slice(-30); const recent = new Set(history.slice(-12).map(item => item.key)); const likes = settings._musicLikes;
-    const allowedSources = Array.isArray(sourceFilter) ? sourceFilter : (sourceFilter ? [sourceFilter] : null); const profileTags = allowedSources && allowedSources.includes('你们的网易云歌单') ? NETEASE_PROFILE_TAGS : APPLE_PROFILE_TAGS; const oppositeSource = allowedSources && allowedSources.includes('你们的网易云歌单') ? '你们的 Apple Music 歌单' : '你们的网易云歌单'; const oppositeTitles = new Set(MUSIC_LIBRARY.filter(song => song.source === oppositeSource).map(song => song.title));
-    const ranked = MUSIC_LIBRARY.filter(song => (!allowedSources || allowedSources.includes(song.source)) && !(song.source === '相似推荐' && oppositeTitles.has(song.title))).map((song, index) => {
+    const allowedSources = Array.isArray(sourceFilter) ? sourceFilter : (sourceFilter ? [sourceFilter] : null);
+    const neteaseOnly = Boolean(allowedSources?.includes('你们的网易云歌单'));
+    const appleSide = Boolean(allowedSources && !neteaseOnly);
+    const profileTags = neteaseOnly ? NETEASE_PROFILE_TAGS : (appleSide ? APPLE_PROFILE_TAGS : [...new Set([...NETEASE_PROFILE_TAGS, ...APPLE_PROFILE_TAGS])]);
+    const styleWanted = new Set(profileTags);
+    const oppositeSource = neteaseOnly ? '你们的 Apple Music 歌单' : (appleSide ? '你们的网易云歌单' : '');
+    const oppositeTitles = new Set(oppositeSource ? MUSIC_LIBRARY.filter(song => song.source === oppositeSource).map(song => song.title) : []);
+    const ranked = MUSIC_LIBRARY.filter(song => (!allowedSources || allowedSources.includes(song.source)) && !(song.source === '相似推荐' && oppositeTitles.has(song.title))).map(song => {
       let score = 0; const key = musicSongKey(song); const profileScore = scoreProfile(song, part, weather, week);
       if (profileScore !== null) score += profileScore;
       song.tags.forEach(tag => { if (wanted.has(tag)) score += tag === part ? 6 : 3; if (styleWanted.has(tag)) score += 1.4; if (song.source === '相似推荐' && profileTags.includes(tag)) score += 2.2; });
@@ -83,7 +88,7 @@
       score += freshnessScore(key, history);
       if (recent.has(key)) score -= 8;
       if (likes[key] === 1) score += 5; if (likes[key] === -1) score -= 12;
-      score += (musicHash(seed + index) % 100) / 100;
+      score += musicHash(seed + '|' + key) / 0xFFFFFFFF;
       return { song, score };
     }).sort((a, b) => b.score - a.score);
     const chosen = ranked.find(item => {
@@ -100,7 +105,7 @@
     if (settings._musicSlotSongKeys[slotKey] && !rejected.has(settings._musicSlotSongKeys[slotKey])) { const cached = MUSIC_LIBRARY.find(song => musicSongKey(song) === settings._musicSlotSongKeys[slotKey]); if (cached) { if (cleaned) ctx.save({ silent: true }); return cached; } }
     const song = pickMusicFor(part, rejected, sourceFilter)[0]; if (!song) { if (cleaned) ctx.save({ silent: true }); return null; }
     settings._musicSlotSongKeys[slotKey] = musicSongKey(song); musicSlotCache.set(slotKey, musicSongKey(song));
-    settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 7 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); ctx.save({ silent: true }); return song;
+    settings._musicHistory = settings._musicHistory.filter(item => Date.now() - item.ts < 30 * 86400000); settings._musicHistory.push({ key: musicSongKey(song), title: song.title, artist: song.artist, ts: Date.now() }); settings._musicHistory = settings._musicHistory.slice(-30); ctx.save({ silent: true }); return song;
   }
 
   function recordFeedback(key, action, slotKey) {

@@ -49,7 +49,15 @@ function loadRoomSyncCore() {
         mergeState(local, remote);
         return local;
       },
-      mergeArr
+      mergeArr,
+      remoteStamps(nextState) {
+        state = nextState;
+        return remoteFeatureStamps(nextState);
+      },
+      remoteChanges(before, nextState) {
+        state = nextState;
+        return changedRemoteFeatures(before, nextState);
+      }
     };
   `, context);
   return context.roomSyncCore;
@@ -309,6 +317,47 @@ test('foreground incoming messages stay visible, persist unread state and refres
   assert.match(lifeSource, /data-life-message-id=/);
   assert.match(lifeCssSource, /\.life-live-message-notice\{/);
   assert.match(lifeCssSource, /env\(safe-area-inset-top\)/);
+});
+
+test('remote change detection routes partner updates without flagging private same-member activity', () => {
+  const initial = baseState('a');
+  const before = sync.remoteStamps(initial);
+  const changed = clone(initial);
+  const now = Date.now();
+  changed.messages.push({ id:'message-b', author:'b', text:'到家啦', createdAt:now, updatedAt:now });
+  changed.todos.push({ id:'todo-b', author:'b', text:'买水果', createdAt:now, updatedAt:now });
+  changed.gallery.push({ id:'photo-b', author:'b', url:'https://example.test/photo', createdAt:now, updatedAt:now });
+  changed.travels.push({ id:'travel-b', author:'b', place:'杭州', createdAt:now, updatedAt:now });
+  changed.wishes.push({ id:'wish-b', author:'b', text:'去海边', createdAt:now, updatedAt:now });
+  changed.challengeAnswers.push({ id:'challenge-b', author:'b', answer:'one', createdAt:now, updatedAt:now });
+  changed.hydrationLog.push({ id:'water-b', author:'b', kind:'water', ml:500, createdAt:now, updatedAt:now });
+  changed.dailyStatus['2026-08-17'] = { b:{ mood:'开心', text:'今天很好', updatedAt:now } };
+  changed.fortune = { date:'2026-08-17', by:{ a:null, b:{ level:'上', text:'顺利', ts:now } } };
+  assert.deepEqual(plain(sync.remoteChanges(before, changed)).sort(), [
+    'challenge','fortune','gallery','hydration','messages','mood','todo','travel','wishes'
+  ]);
+
+  const sameMember = clone(initial);
+  sameMember.messages.push({ id:'message-a', author:'a', text:'自己的留言', createdAt:now, updatedAt:now });
+  sameMember.challengeAnswers.push({ id:'challenge-a', author:'a', answer:'one', createdAt:now, updatedAt:now });
+  sameMember.hydrationLog.push({ id:'water-a', author:'a', kind:'water', ml:500, createdAt:now, updatedAt:now });
+  assert.deepEqual(plain(sync.remoteChanges(before, sameMember)), []);
+});
+
+test('P1 remote update indicators are room/member isolated and clear from their destination', () => {
+  assert.match(appSource, /new CustomEvent\('puffer-remote-changes'/);
+  assert.match(appSource, /emitRemoteChanges\(remoteBefore, announceRemoteChanges\)/);
+  assert.match(appSource, /emitRemoteChanges\(remoteBefore\)/);
+  assert.match(lifeSource, /puffer-remote-updates:v1:\$\{encodeURIComponent\(roomId\)\}:\$\{member\}/);
+  assert.match(lifeSource, /new Set\(\['messages','mood','fortune','todo','gallery','travel','wishes','challenge','hydration'\]\)/);
+  assert.match(lifeSource, /remoteUnreadUpdates\.delete\(normalized\)/);
+  assert.match(lifeSource, /if\(kind==='messages'&&mask\.classList\.contains\('show'\)&&mask\.querySelector\('\.life-chat-sheet'\)\)return/);
+  assert.match(lifeSource, /data-life-open="partner-mood"/);
+  assert.match(lifeSource, /window\.addEventListener\('puffer-remote-changes'/);
+  assert.match(lifeSource, /rect\.bottom>viewportTop&&rect\.top<viewportBottom/);
+  assert.match(lifeSource, /window\.addEventListener\('scroll', queueRemoteUpdateUi, \{passive:true\}\)/);
+  assert.match(lifeCssSource, /\.life-remote-update-target\.has-remote-update::after/);
+  assert.match(lifeCssSource, /lifeRemoteUpdateHighlight 1s ease-out/);
 });
 
 test('Life overlays close with browser back and preserve page and tab scroll positions', () => {

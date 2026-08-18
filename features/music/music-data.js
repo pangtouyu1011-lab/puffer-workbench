@@ -8,6 +8,10 @@
   const musicSearch = (query) => 'https://music.apple.com/cn/search?term=' + encodeURIComponent(query);
   const NETEASE_PROFILE_TAGS = ['rain','night','tired','indie','rap','experimental','emotional'];
   const APPLE_PROFILE_TAGS = ['morning','noon','sun','clear','happy','warm','soft','slow','weekend','workweek'];
+  const MUSIC_TAG_VERSION = 'stable-v1';
+  const TIME_TAGS = ['morning', 'noon', 'night'];
+  const WEATHER_TAG_GROUPS = [['sun', 'clear'], ['cloud', 'soft'], ['rain', 'soft']];
+  const WEEK_TAGS = ['workweek', 'weekend', 'friday'];
   const MUSIC_LYRICS = {
     '简单爱':'我想带你骑单车',
     '爱在西元前':'我给你的爱写在西元前',
@@ -30,7 +34,112 @@
     '不能说的秘密':'最美的不是下雨天',
     '彩虹':'哪里有彩虹告诉我'
   };
-  const MUSIC_LIBRARY = [
+
+  const NETEASE_SOURCE = '你们的网易云歌单';
+  const APPLE_SOURCE = '你们的 Apple Music 歌单';
+  function stableMusicHash(value) {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+  function stableMusicTags(input = {}) {
+    const id = String(input.id || '').trim();
+    const title = String(input.title || '').trim();
+    const artist = String(input.artist || '').trim();
+    const genre = String(input.genre || '').trim();
+    const source = String(input.source || '').trim();
+    const text = `${title} ${artist} ${genre}`.toLowerCase();
+    const hash = stableMusicHash(`${MUSIC_TAG_VERSION}|${source}|${id || `${artist}|${title}`}`);
+    const tags = [];
+    const add = (...values) => values.forEach(value => { if (value && !tags.includes(value)) tags.push(value); });
+    const matches = pattern => pattern.test(text);
+    const isRap = matches(/(?:hip[ -]?hop|rap|嘻哈|说唱)/i);
+    const isAlternative = matches(/(?:alternative|indie|rock|punk|另类|独立|摇滚)/i);
+    const isRnb = matches(/(?:r&b|rhythm and blues|soul|灵魂乐)/i);
+    const isDance = matches(/(?:dance|electronic|afrobeat|k-pop|j-pop|舞曲|电子|非洲节奏)/i);
+    const isQuietGenre = matches(/(?:soundtrack|ambient|classical|singer.songwriter|原声|氛围|古典|唱作歌手|音乐剧)/i);
+    const rainTitle = matches(/(?:雨|rain|storm|umbrella|阴天)/i);
+    const nightTitle = matches(/(?:夜|晚安|moon|midnight|night|星空)/i);
+    const brightTitle = matches(/(?:夏|晴|阳光|太阳|summer|sun|dance|party|快乐|开心)/i);
+    const tenderTitle = matches(/(?:爱|喜欢|想你|love|lover|heart|kiss|温柔|浪漫)/i);
+    const sadTitle = matches(/(?:泪|哭|痛|孤独|离开|错过|遗憾|sad|cry|lonely|heartbreak)/i);
+
+    if (nightTitle || rainTitle || sadTitle) add('night');
+    else if (isDance || isRap) add(hash % 3 === 0 ? 'night' : 'noon');
+    else if (isRnb || isQuietGenre) add(hash % 2 === 0 ? 'morning' : 'night');
+    else add(TIME_TAGS[hash % TIME_TAGS.length]);
+
+    if (rainTitle) add('rain', 'cloud', 'soft');
+    else if (brightTitle || isDance) add('sun', 'clear', 'happy');
+    else if (sadTitle) add('rain', 'tired', 'emotional', 'slow');
+    else add(...WEATHER_TAG_GROUPS[(hash >>> 4) % WEATHER_TAG_GROUPS.length]);
+
+    if (isRap) add('rap', (hash >>> 7) % 2 === 0 ? 'experimental' : 'happy');
+    if (isAlternative) add('indie', 'experimental');
+    if (isRnb) add('soft', 'warm', 'slow');
+    if (isQuietGenre) add('soft', 'slow');
+    if (tenderTitle) add('warm', 'soft');
+    if (sadTitle) add('emotional', 'tired');
+    if (!isRap && !isAlternative && !isRnb && !isDance && !isQuietGenre && !tenderTitle && !sadTitle) {
+      add(['happy', 'warm', 'soft', 'slow', 'emotional'][(hash >>> 9) % 5]);
+    }
+    add(WEEK_TAGS[(hash >>> 12) % WEEK_TAGS.length]);
+    return tags;
+  }
+  const NETEASE_CURATED = {
+    '3410254626': { legacyTitle:'雨瘾', tags:['night','rain','indie','experimental','emotional','tired'] },
+    '3410245671': { legacyTitle:'神选', tags:['night','cloud','rap','experimental','emotional'] },
+    '3410240174': { legacyTitle:'蜈蚣', tags:['night','rap','indie','experimental'] },
+    '3410228672': { legacyTitle:'我和我的现金', tags:['noon','friday','rap','happy'] },
+    '2163619013': { legacyTitle:'焦虑Pt.2/膨胀', tags:['night','rain','rap','emotional','tired'] },
+    '3392600720': { legacyTitle:'朦胧', tags:['night','cloud','indie','soft','emotional'] },
+    '3382153689': { legacyTitle:'Whisper My Name', tags:['night','cloud','rap','soft'] },
+    '3327562079': { legacyTitle:'Separation', tags:['night','rain','rap','tired'] },
+    '3382153693': { legacyTitle:'National Treasures', tags:['night','rap','experimental'] },
+    '3322064338': { legacyTitle:'Burnin\' Slowly', tags:['night','rain','soft','slow'] },
+    '2754174752': { legacyTitle:'你给的恨', tags:['night','rain','rap','emotional'] },
+    '3382908505': { legacyTitle:'玻璃', tags:['night','rain','soft','emotional'] },
+    '3332893439': { legacyTitle:'在雨后醒来（升音Sound）', tags:['night','rain','soft','tired'] },
+    '2718644892': { legacyTitle:'特大暴雨来了', tags:['night','rain','experimental','emotional'] },
+    '3364284329': { legacyTitle:'ALL THE LOVE', tags:['night','cloud','rap','warm'] },
+    '3334046872': { legacyTitle:'AOE (All Of Everything)', tags:['night','rap','experimental'] },
+    '3364284333': { legacyTitle:'PREACHER MAN', tags:['night','cloud','rap','emotional'] },
+    '2716372738': { legacyTitle:'4 Raws', tags:['night','rap','experimental'] },
+    '3364284328': { legacyTitle:'FATHER', tags:['night','cloud','rap','emotional'] },
+    '559647885': { legacyTitle:'Long Time (Intro)', tags:['night','cloud','rap','slow'] }
+  };
+
+  const neteaseRows = Array.isArray(window.PufferNeteasePlaylistData?.tracks)
+    ? window.PufferNeteasePlaylistData.tracks
+    : [];
+  const NETEASE_LIBRARY = neteaseRows.map(row => {
+    const [idValue, titleValue, artistValue] = Array.isArray(row) ? row : [];
+    const id = String(idValue || '');
+    const title = String(titleValue || '').trim();
+    const artist = String(artistValue || '').trim();
+    const curated = NETEASE_CURATED[id];
+    const tags = curated ? [...curated.tags] : stableMusicTags({ id, title, artist, source:NETEASE_SOURCE });
+    const song = {
+      title,
+      artist,
+      id,
+      tags,
+      source: NETEASE_SOURCE,
+      url: 'https://music.163.com/song?id=' + encodeURIComponent(id),
+      playlistOwned: true,
+      tagSource: curated ? 'curated' : MUSIC_TAG_VERSION
+    };
+    if (curated) {
+      song.key = NETEASE_SOURCE + ':' + artist + ':' + curated.legacyTitle;
+    }
+    return song;
+  }).filter(song => song.id && song.title && song.artist);
+
+  const APPLE_CURATED = [
     { title:'简单爱', artist:'周杰伦', id:'535739351', tags:['morning','noon','sun','clear','happy','weekend','friday'] },
     { title:'特别的人', artist:'方大同', id:'1579903651', tags:['morning','noon','cloud','soft','warm','workweek'] },
     { title:'爱在西元前', artist:'周杰伦', id:'535739349', tags:['morning','sun','clear','happy','workweek'] },
@@ -80,27 +189,48 @@
     { title:'爱请问怎么走', artist:'莫文蔚', id:'930758244', tags:['night','rain','emotional','slow'] },
     { title:'阴天', artist:'莫文蔚', id:'200473135', tags:['night','cloud','soft','emotional','slow'] },
     { title:'无人知晓的我', artist:'A-Lin', id:'1281542262', tags:['night','cloud','emotional','soft'] }
-  ].map(song => ({ ...song, source: '你们的 Apple Music 歌单', url: musicLink(song.id) })).concat([
-    { title:'雨瘾', artist:'SASIOVERLXRD', tags:['night','rain','indie','experimental','emotional','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410254626' },
-    { title:'神选', artist:'SASIOVERLXRD', tags:['night','cloud','rap','experimental','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410245671' },
-    { title:'蜈蚣', artist:'SASIOVERLXRD', tags:['night','rap','indie','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410240174' },
-    { title:'我和我的现金', artist:'SASIOVERLXRD', tags:['noon','friday','rap','happy'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3410228672' },
-    { title:'焦虑Pt.2/膨胀', artist:'艾志恒Asen', tags:['night','rain','rap','emotional','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2163619013' },
-    { title:'朦胧', artist:'skiboyvv / rubenmccarter', id:'', tags:['night','cloud','indie','soft','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3392600720' },
-    { title:'Whisper My Name', artist:'Drake', id:'', tags:['night','cloud','rap','soft'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382153689' },
-    { title:'Separation', artist:'Westwood / onlywoke', id:'', tags:['night','rain','rap','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3327562079' },
-    { title:'National Treasures', artist:'Drake', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382153693' },
-    { title:'Burnin\' Slowly', artist:'黄格雷 / THOME', id:'', tags:['night','rain','soft','slow'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3322064338' },
-    { title:'你给的恨', artist:'艾志恒Asen / Maikon Flocka Flame', id:'', tags:['night','rain','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2754174752' },
-    { title:'玻璃', artist:'Gareth.T', id:'', tags:['night','rain','soft','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3382908505' },
-    { title:'在雨后醒来（升音Sound）', artist:'Au', id:'', tags:['night','rain','soft','tired'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3332893439' },
-    { title:'特大暴雨来了', artist:'二流', id:'', tags:['night','rain','experimental','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2718644892' },
-    { title:'ALL THE LOVE', artist:'Kanye West / Ye / Andre Troutman', id:'', tags:['night','cloud','rap','warm'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284329' },
-    { title:'AOE (All Of Everything)', artist:'DD Ma Shawty', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3334046872' },
-    { title:'PREACHER MAN', artist:'Kanye West / Ye', id:'', tags:['night','cloud','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284333' },
-    { title:'4 Raws', artist:'EsDeeKid', id:'', tags:['night','rap','experimental'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=2716372738' },
-    { title:'FATHER', artist:'Kanye West / Ye / Travis Scott', id:'', tags:['night','cloud','rap','emotional'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=3364284328' },
-    { title:'Long Time (Intro)', artist:'Playboi Carti', id:'', tags:['night','cloud','rap','slow'], source:'你们的网易云歌单', url:'https://music.163.com/song?id=559647885' },
+  ];
+
+  const appleSignature = (title, artist) => String(title || '').trim().toLocaleLowerCase() + '\u0000' + String(artist || '').trim().toLocaleLowerCase();
+  const appleCuratedById = new Map(APPLE_CURATED.filter(song => song.id).map(song => [String(song.id), song]));
+  const appleCuratedBySignature = new Map(APPLE_CURATED.map(song => [appleSignature(song.title, song.artist), song]));
+  const appleRows = Array.isArray(window.PufferApplePlaylistData?.tracks)
+    ? window.PufferApplePlaylistData.tracks
+    : [];
+  const APPLE_PLAYLIST_LIBRARY = appleRows.map(row => {
+    const [idValue, titleValue, artistValue, urlValue, genreValue, releaseYearValue] = Array.isArray(row) ? row : [];
+    const id = String(idValue || '').trim();
+    const title = String(titleValue || '').trim();
+    const artist = String(artistValue || '').trim();
+    const genre = String(genreValue || '').trim();
+    const releaseYear = Number(releaseYearValue) || 0;
+    const curated = appleCuratedById.get(id) || appleCuratedBySignature.get(appleSignature(title, artist));
+    const song = {
+      title,
+      artist,
+      id,
+      tags: curated ? [...curated.tags] : stableMusicTags({ id, title, artist, genre, source:APPLE_SOURCE }),
+      source: APPLE_SOURCE,
+      url: String(urlValue || '').trim() || musicLink(id),
+      playlistOwned: true,
+      catalogGenre: genre,
+      releaseYear,
+      tagSource: curated ? 'curated' : MUSIC_TAG_VERSION
+    };
+    // Several legacy rows had no Apple ID. Preserve those saved feedback keys
+    // even though the complete playlist snapshot can now supply an ID.
+    if (curated && !curated.id) song.key = APPLE_SOURCE + ':' + curated.artist + ':' + curated.title;
+    return song;
+  }).filter(song => song.id && song.title && song.artist);
+  const applePlaylistIds = new Set(APPLE_PLAYLIST_LIBRARY.map(song => song.id));
+  const applePlaylistSignatures = new Set(APPLE_PLAYLIST_LIBRARY.map(song => appleSignature(song.title, song.artist)));
+  const APPLE_LEGACY_LIBRARY = APPLE_CURATED.filter(song =>
+    !(song.id && applePlaylistIds.has(String(song.id))) &&
+    !applePlaylistSignatures.has(appleSignature(song.title, song.artist))
+  ).map(song => ({ ...song, source: APPLE_SOURCE, url: musicLink(song.id), playlistOwned: false, tagSource:'curated' }));
+  const APPLE_LIBRARY = APPLE_PLAYLIST_LIBRARY.concat(APPLE_LEGACY_LIBRARY);
+
+  const MUSIC_LIBRARY = APPLE_LIBRARY.concat(NETEASE_LIBRARY, [
     { title:'Pink + White', artist:'Frank Ocean', tags:['morning','sun','soft','warm','indie'], source:'相似推荐', url:musicSearch('Frank Ocean Pink White') },
     { title:'Best Part', artist:'Daniel Caesar feat. H.E.R.', tags:['morning','noon','cloud','warm','slow'], source:'相似推荐', url:musicSearch('Daniel Caesar Best Part') },
     { title:'可惜没如果', artist:'林俊杰', tags:['night','rain','tired','emotional'], source:'相似推荐', url:musicSearch('林俊杰 可惜没如果') },
@@ -156,7 +286,9 @@
     NETEASE_PLAYLIST_URL,
     NETEASE_PROFILE_TAGS,
     APPLE_PROFILE_TAGS,
+    MUSIC_TAG_VERSION,
     MUSIC_LYRICS,
-    MUSIC_LIBRARY
+    MUSIC_LIBRARY,
+    stableMusicTags
   };
 })();

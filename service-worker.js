@@ -1,8 +1,8 @@
 // Keep one release identifier across index.html, version.json and every cache key.
 const CACHE_PREFIX = 'puffer-';
-const CACHE_NAME = 'puffer-shell-v19-staged-cache';
-const RUNTIME_CACHE_NAME = 'puffer-runtime-v19-staged-cache';
-const STATIC_ASSET_VERSION = '20260818-review-return-scroll-1';
+const CACHE_NAME = 'puffer-shell-v20-music-library';
+const RUNTIME_CACHE_NAME = 'puffer-runtime-v20-music-library';
+const STATIC_ASSET_VERSION = '20260818-music-tags-1';
 const CORE_TIMEOUT_MS = 8000;
 const WARM_CACHE_BATCH_SIZE = 6;
 
@@ -15,7 +15,7 @@ const FONT_ASSET_FILES = [
 const CRITICAL_SHELL_FILES = [
   'styles.css', 'legacy-dashboard.css', 'legacy-training.css', 'legacy-navigation.css',
   'life.css', 'life-ritual.css', 'life-dashboard.css', 'life-dashboard-music.css', 'life-complete-state.css',
-  'challenge-questions.js', 'features/music/music-data.js', 'features/music/music-state.js',
+  'challenge-questions.js', 'features/music/music-apple-data.js', 'features/music/music-netease-data.js', 'features/music/music-data.js', 'features/music/music-state.js',
   'features/music/music-recommend.js', 'features/music/music-reason.js', 'features/music/music-view.js',
   'app.js', 'push.js', 'life.js', 'life-complete-state.js',
   'assets/qrcodejs-1.0.0.min.js', 'assets/fonts/fonts.css',
@@ -25,6 +25,8 @@ const WARM_VISUAL_FILES = [
   'assets/puffer.webp', 'assets/puffer-180.png', 'assets/puffer-192.png', 'assets/puffer-512.png',
   'assets/puffer-page-days.webp', 'assets/puffer-page-things.webp', 'assets/puffer-page-us.webp',
   'assets/puffer-state-happy.webp', 'assets/puffer-state-quiet.webp',
+  'assets/puffer-reaction-hydration-v1.png', 'assets/puffer-reaction-message-v1.png',
+  'assets/puffer-reaction-todo-v1.png',
   'assets/hydration-water-cup-empty.webp', 'assets/hydration-drink-cup-empty.webp',
   'assets/weather-sunny-pet.webp', 'assets/weather-cloud-pet.webp',
   'assets/weather-rain-pet.webp', 'assets/weather-snow-pet.webp'

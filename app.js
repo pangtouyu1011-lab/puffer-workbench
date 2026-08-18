@@ -2642,6 +2642,48 @@
     if (Array.isArray(value)) return '[' + value.map(stableRecord).join(',') + ']';
     return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableRecord(value[key])).join(',') + '}';
   }
+  const REMOTE_CHANGE_ARRAYS = {
+    messages: 'messages',
+    todo: 'todos',
+    gallery: 'gallery',
+    travel: 'travels',
+    wishes: 'wishes',
+    challenge: 'challengeAnswers',
+    hydration: 'hydrationLog'
+  };
+  function remoteArrayStamp(items, person = '') {
+    return stableRecord((Array.isArray(items) ? items : [])
+      .filter(item => item && (!person || item.author === person))
+      .map(item => [String(item.id ?? ''), String(item.author || ''), !!item.deleted, Number(item.updatedAt || item.createdAt || 0)])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+  }
+  function remoteFeatureStamps(source = state) {
+    const me = source?.settings?.me || state.settings.me || 'a';
+    const partner = me === 'a' ? 'b' : 'a';
+    const stamps = {};
+    Object.entries(REMOTE_CHANGE_ARRAYS).forEach(([feature, key]) => {
+      const partnerOnly = feature === 'messages' || feature === 'challenge' || feature === 'hydration';
+      stamps[feature] = remoteArrayStamp(source?.[key], partnerOnly ? partner : '');
+    });
+    stamps.mood = stableRecord(Object.entries(source?.dailyStatus || {}).map(([date, people]) => {
+      const value = people?.[partner];
+      return [date, value?.mood || '', value?.text || '', Number(value?.updatedAt || 0)];
+    }).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+    const fortune = source?.fortune;
+    const partnerFortune = fortune?.by?.[partner];
+    stamps.fortune = stableRecord([fortune?.date || '', partnerFortune || null]);
+    return stamps;
+  }
+  function changedRemoteFeatures(before, source = state) {
+    const after = remoteFeatureStamps(source);
+    return Object.keys(after).filter(feature => before?.[feature] !== after[feature]);
+  }
+  function emitRemoteChanges(before, announce = true) {
+    if (!announce) return [];
+    const changes = changedRemoteFeatures(before);
+    if (changes.length) window.dispatchEvent(new CustomEvent('puffer-remote-changes', { detail: { changes } }));
+    return changes;
+  }
   // 按条目 id 合并两个数组：删除标记优先，内容以 updatedAt 较新者胜。
   function mergeArr(localArr, remoteArr) {
     const map = new Map();
@@ -2899,10 +2941,13 @@
     try {
       try {
         const prevIds = new Set(state.messages.map(m => m.id));
+        const remoteBefore = remoteFeatureStamps();
+        const announceRemoteChanges = Number(r.lastRev || 0) > 0;
         const remote = await roomGet(context.url, context.id, context.pass);
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         mergeState(state, remote.data);
         r.lastRev = remote.rev;
+        emitRemoteChanges(remoteBefore, announceRemoteChanges);
         checkNewMessages(prevIds); // 打开/同步时立即发现对方新留言
       } catch (e) {
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
@@ -2996,6 +3041,7 @@
       if (remote.rev === r.lastRev && !hasMessageDelta) return; // 版本相同但 D1 补回了留言时仍需合并
       const before = { messages: new Set(state.messages.map(m => m.id)), gallery: new Set(state.gallery.map(m => m.id)), todos: new Set(state.todos.map(m => m.id)), trainings: new Set(state.trainings.map(m => m.id)), wishes: new Set(state.wishes.map(m => m.id)) };
       const prevIds = before.messages;
+      const remoteBefore = remoteFeatureStamps();
       mergeState(state, remote.data);
       r.lastRev = remote.rev;
       const interactionChanged = updateInteractionHistory();
@@ -3004,6 +3050,7 @@
       if (interactionChanged) scheduleRoomPush();
       const incomingMessages = checkNewMessages(prevIds);
       renderCurrent();
+      emitRemoteChanges(remoteBefore);
       // 新留言已有更明确、可点击的提示，避免通用同步 toast 紧接着把它覆盖。
       if (!incomingMessages.length) toast('共同空间已更新：' + describeRemoteChange(before, remote.data), 'success');
     } catch (e) {

@@ -1,12 +1,25 @@
 (() => {
   const complete = () => Boolean(window.PufferLife?.isTodayInteractionComplete?.());
-  const showCompleteState = () => {
+  let frame = null;
+  const syncCompleteState = () => {
+    frame = null;
     const card = document.querySelector('#lifeApp .life-today-together .life-together-card');
-    if (!card || card.dataset.completePet === 'true' || !complete()) return;
-    card.dataset.completePet = 'true'; card.classList.add('life-together-complete');
-    card.innerHTML = `<img class="life-complete-pet" src="assets/status-pet-complete.png?v=1" alt="胖头鱼为你们庆祝"><div class="life-complete-copy"><b>今天被你们好好过完了</b><span>每个小互动，都收到了彼此的回应。</span></div>`;
+    if (!card) return;
+    const done = complete();
+    card.classList.toggle('life-together-complete', done);
+    const existing = card.querySelector('.life-complete-summary');
+    if (!done) { existing?.remove(); return; }
+    if (existing) return;
+    const summary = document.createElement('div');
+    summary.className = 'life-complete-summary';
+    summary.setAttribute('role', 'status');
+    summary.innerHTML = `<span class="life-complete-mark"><i class="ph ph-check"></i></span><div><b>今天的互动完成啦</b><small>内容都还在，随时可以回来看看。</small></div>`;
+    const challenge = card.querySelector('.life-challenge-entry');
+    if (challenge) challenge.insertAdjacentElement('afterend', summary);
+    else card.prepend(summary);
   };
-  const schedule = () => requestAnimationFrame(showCompleteState);
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(syncCompleteState); };
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('puffer-state-change', schedule);
   window.addEventListener('focus', schedule); schedule();
 })();
