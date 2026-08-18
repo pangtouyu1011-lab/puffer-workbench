@@ -297,6 +297,6 @@ body.life-mode[data-life-time="night"] .life-nav{--life-nav-surface-start:rgba(2
 
 /* iOS paint stability: a full-screen backdrop blur can hide the transformed
    sheet layer. Keep the dimmer lightweight and the dialog on its own layer. */
-.life-sheet-mask{background:rgba(24,28,36,.3)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+.life-sheet-mask{background:rgba(24,28,36,.24)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 .life-sheet-mask>.life-sheet{position:relative;z-index:1;visibility:visible;isolation:isolate;will-change:transform,opacity}
 .life-sheet-mask.is-closing>.life-sheet{opacity:0;transform:translate3d(0,100%,0)}

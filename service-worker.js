@@ -1,7 +1,7 @@
 // Keep one release identifier across index.html, version.json and every cache key.
 const CACHE_PREFIX = 'puffer-';
-const CACHE_NAME = 'puffer-shell-v20-music-library';
-const RUNTIME_CACHE_NAME = 'puffer-runtime-v20-music-library';
+const CACHE_NAME = 'puffer-shell-v21-bottom-sheet-fix';
+const RUNTIME_CACHE_NAME = 'puffer-runtime-v21-bottom-sheet-fix';
 const STATIC_ASSET_VERSION = '20260818-music-tags-1';
 const CORE_TIMEOUT_MS = 8000;
 const WARM_CACHE_BATCH_SIZE = 6;

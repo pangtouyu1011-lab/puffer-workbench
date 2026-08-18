@@ -97,6 +97,7 @@
   let sheetClosingFromHistory = false;
   let pendingCompanionReaction = null;
   let pendingCompanionReactionTimer = null;
+  let lifeRenderReady = false;
   const REMOTE_UPDATE_TYPES = new Set(['messages','mood','fortune','todo','gallery','travel','wishes','challenge','hydration']);
   const REMOTE_UPDATE_SELECTORS = {
     messages: '[data-life-page="today"] .life-partner-note,[data-life-page="things"] [data-life-open="messages"]',
@@ -415,6 +416,12 @@
   }
 
   function openSheet(html, modifier = '') {
+    // A notification or a fast tap can open a sheet before DOMContentLoaded's
+    // first render. Ensure the page underneath the sheet is not an empty shell.
+    const activePage = root.querySelector('.life-page.active');
+    if (!lifeRenderReady || !activePage?.children.length) {
+      try { render(); lifeRenderReady = true; } catch (_) {}
+    }
     const reopeningAfterHistoryClose = sheetClosing && sheetClosingFromHistory;
     const reuseOverlay = (mask.classList.contains('show') || sheetClosing) && !reopeningAfterHistoryClose;
     if (reopeningAfterHistoryClose) finishOverlaySession('life-sheet', true);
@@ -1103,5 +1110,5 @@ openSheet(`<div class="life-travel-page life-travel-timeline-page"><header><butt
   window.addEventListener('puffer-life-hydration', () => { selectTab('today'); render(); requestAnimationFrame(() => hydrationSheet()); });
   function openNotificationTarget(kind) { if(kind==='messages')window.dispatchEvent(new CustomEvent('puffer-life-messages'));else if(kind==='todos'||kind==='todo')window.dispatchEvent(new CustomEvent('puffer-life-todo'));else if(kind==='gallery')window.dispatchEvent(new CustomEvent('puffer-life-gallery'));else if(kind==='hydration')window.dispatchEvent(new CustomEvent('puffer-life-hydration')); }
   setInterval(() => { if(!document.hidden&&syncTimeAtmosphere())render(); }, 60000);
-  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); syncTimeAtmosphere(); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); render();const url=new URL(location.href),target=url.searchParams.get('open');if(target){url.searchParams.delete('open');history.replaceState(null,'',url.pathname+url.search+url.hash);requestAnimationFrame(()=>openNotificationTarget(target));}else maybeOfferReview(); });
+  document.addEventListener('DOMContentLoaded', () => { document.body.classList.add('life-mode'); syncTimeAtmosphere(); document.querySelectorAll('.bg-bubbles,.bg-motes').forEach(node=>node.remove()); try { render(); lifeRenderReady = true; } finally { document.documentElement.classList.remove('life-boot'); } const url=new URL(location.href),target=url.searchParams.get('open');if(target){url.searchParams.delete('open');history.replaceState(null,'',url.pathname+url.search+url.hash);requestAnimationFrame(()=>openNotificationTarget(target));}else maybeOfferReview(); });
 })();
