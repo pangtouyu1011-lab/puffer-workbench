@@ -61,6 +61,10 @@
   root.innerHTML = `<section class="life-page active" data-life-page="today"></section><section class="life-page" data-life-page="days"></section><section class="life-page" data-life-page="things"></section><section class="life-page" data-life-page="us"></section><nav class="life-nav">${Object.keys(navMeta).map(navButton).join('')}</nav>`;
   document.body.append(root);
   const mask = document.createElement('div'); mask.className = 'life-sheet-mask'; document.body.append(mask);
+  mask.addEventListener('touchmove', event => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.life-sheet-body')) event.preventDefault();
+  }, { passive: false });
   const liveMessageNotice = document.createElement('button');
   liveMessageNotice.type = 'button';
   liveMessageNotice.id = 'lifeLiveMessageNotice';
@@ -369,10 +373,8 @@
 
   function lockPageScroll() {
     if (overlayScrollLock) return;
-    const body = document.body;
-    overlayScrollLock = { y:window.scrollY, top:body.style.top };
-    body.style.top = `-${overlayScrollLock.y}px`;
-    body.classList.add('life-sheet-open');
+    overlayScrollLock = { y: window.scrollY };
+    document.body.classList.add('life-sheet-open');
     document.documentElement.classList.add('life-sheet-open');
   }
 
@@ -382,8 +384,9 @@
     overlayScrollLock = null;
     document.body.classList.remove('life-sheet-open');
     document.documentElement.classList.remove('life-sheet-open');
-    document.body.style.top = lock.top;
-    window.scrollTo(0, lock.y);
+    if (Math.abs(window.scrollY - lock.y) > 1) {
+      window.scrollTo(0, lock.y);
+    }
   }
 
   function beginOverlaySession(kind, focusTarget) {
