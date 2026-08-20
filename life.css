@@ -304,3 +304,53 @@ body.life-mode[data-life-time="night"] .life-nav{--life-nav-surface-start:rgba(2
 .life-sheet-mask{background:rgba(24,28,36,.24)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 .life-sheet-mask>.life-sheet{position:relative;z-index:1;visibility:visible;isolation:isolate;will-change:transform,opacity}
 .life-sheet-mask.is-closing>.life-sheet{opacity:0;transform:translate3d(0,100%,0)}
+
+/* Home weather: quiet secondary almanac details. */
+.life-photo-hero+.life-weather{margin-top:16px}
+.life-weather>div{min-width:0}
+.life-weather{min-height:188px!important}
+.life-weather-main{min-width:0}
+.life-weather-pet-column{position:relative;display:grid;align-items:center;justify-items:center;min-width:0;align-self:stretch}
+.life-weather-almanac{display:grid;gap:0;max-width:100%;margin-top:8px;padding-left:0}
+.life-weather-almanac::before{content:none}
+.life-weather-almanac-date{position:absolute;top:13px;right:0;left:0;overflow:hidden;color:rgba(65,65,65,.5);font-size:11px;font-weight:400;line-height:16px;text-align:center;white-space:nowrap;text-overflow:ellipsis}
+.life-weather-lunar-date{margin-left:0;color:rgba(65,65,65,.62);font-weight:500}
+.life-weather-almanac-row{display:flex;align-items:baseline;gap:8px;min-width:0;color:rgba(65,65,65,.72);font-size:11px;line-height:16px}
+.life-weather-almanac-row+.life-weather-almanac-row{margin-top:0}
+.life-weather-almanac-label{display:inline;flex:0 0 auto;min-width:0;height:auto;padding:0;border-radius:0;background:none;box-shadow:none;font-size:11px;font-weight:600;letter-spacing:0;line-height:16px}
+.life-weather-almanac-label.is-good{color:rgba(83,112,88,.78)}
+.life-weather-almanac-label.is-bad{color:rgba(139,88,84,.74)}
+.life-weather-almanac-text{display:block;min-width:0;overflow:hidden;color:rgba(65,65,65,.72);font-size:11px;font-weight:400;letter-spacing:.01em;line-height:16px;white-space:nowrap;text-overflow:ellipsis}
+
+/* Home summaries: preserve every action while reducing vertical chrome. */
+.life-partner-summary-grid .life-partner-summary-compact,.life-partner-summary-grid .life-partner-fortune{display:grid;grid-template-columns:28px minmax(0,1fr) 14px;gap:8px;align-items:center;min-width:0;min-height:56px;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
+.life-partner-summary-grid .life-partner-fortune{border-left:1px solid var(--life-line)}
+.life-partner-summary-compact>span,.life-partner-fortune>span{display:grid;place-items:center;width:28px;height:28px;margin:0;border-radius:10px;background:#fbe9e1;color:#bd6c50;font-size:16px}
+.life-partner-summary-compact>div,.life-partner-fortune>div{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.life-partner-summary-compact small,.life-partner-fortune small{display:inline;color:var(--life-muted);font-size:11px;line-height:16px}
+.life-partner-summary-compact small::after,.life-partner-fortune small::after{content:' · '}
+.life-partner-summary-compact b,.life-partner-fortune b{display:inline;overflow:hidden;margin:0;color:var(--life-ink);font-size:12px;font-weight:600;line-height:16px;text-overflow:ellipsis;white-space:nowrap}
+.life-partner-fortune>i{color:#aaa6a5;font-size:15px}
+.life-today-together .life-section-head{align-items:center;margin-bottom:8px}
+.life-interaction-streak-inline{display:inline-flex;align-items:center;gap:4px;color:#a85e47;font-size:11px;line-height:16px;white-space:nowrap}
+.life-interaction-streak-inline>i{font-size:13px;color:#d47760}
+.life-interaction-streak-inline b{font-size:13px;font-weight:700}
+.life-today-together .life-together-card{padding:8px 13px 9px}
+.life-challenge-entry{grid-template-columns:26px minmax(0,1fr) 16px;gap:8px;min-height:44px;padding:6px 1px 8px}
+.life-challenge-entry>span{width:26px;height:26px;border-radius:9px;font-size:14px}
+.life-challenge-entry small,.life-challenge-entry b{display:inline;overflow:hidden;margin:0;font-size:12px;line-height:18px;white-space:nowrap;text-overflow:ellipsis}
+.life-challenge-entry small{color:var(--life-muted)}
+.life-challenge-entry small::after{content:' · '}
+.life-challenge-entry b{color:var(--life-ink);font-weight:600}
+.life-challenge-entry>i{font-size:15px}
+.life-interaction-subhead{padding:7px 1px 2px;font-size:11px}
+.life-interaction-subhead b{font-size:11px}
+.life-today-together .life-participation-row{grid-template-columns:40px minmax(0,1fr) 28px!important;gap:8px;min-height:38px;padding:4px 0}
+.life-today-together .life-participation-row>span{font-size:12px}
+.life-today-together .life-participation-row>div{gap:5px}
+.life-participation-item{position:relative;display:grid;grid-template-columns:1fr;place-items:center;min-height:30px;padding:0;border:1px solid #e9e7e8;border-radius:10px;background:#fbfbfd;color:#96969d;text-align:center}
+.life-participation-item>span{display:grid;place-items:center;width:22px;height:22px;border-radius:8px;background:transparent;font-size:15px}
+.life-participation-item>i{position:absolute;right:2px;bottom:1px;font-size:9px;line-height:1;color:#a7a7ad}
+.life-participation-item.is-done{border-color:#efc8bb;background:#fff5f0;color:#bb654c}
+.life-participation-item.is-done>span{background:transparent}.life-participation-item.is-done>i{color:#d06d53}
+.life-interaction-waiting{display:flex;align-items:center;gap:8px;margin:6px 1px 3px;padding:8px 10px;border:1px solid #f0ddd6;border-radius:12px;background:#fffaf7;color:#a06655;font-size:11px;line-height:15px}.life-interaction-waiting>i{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:9px;background:#fff0e9;color:#cf765d;font-size:14px}.life-interaction-waiting small{color:#9a8b85;font-size:10px;line-height:14px}.life-companion-float[data-tone="celebrate"] .life-companion-action-feedback{border-color:#eadbc3;background:#fffdf8;color:#8d6a42}
