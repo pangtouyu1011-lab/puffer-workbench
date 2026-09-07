@@ -52,6 +52,67 @@ function presencePath(room) {
   return `/api/v1/rooms/${encodeURIComponent(room)}/presence`;
 }
 
+function watchRoom(room, pass, since, waitMs = 1000) {
+  return postJson(`/api/v1/rooms/${encodeURIComponent(room)}/changes`, { pass, since, waitMs });
+}
+
+test('change notifications authenticate without exposing snapshots or creating rooms', async () => {
+  const room = 'watch-auth';
+  await putRoom(room, 'secret', 0, { messages: [{ id: 'private', text: 'private text' }] });
+  assert.equal((await watchRoom(room, 'wrong', 0)).status, 403);
+  assert.equal((await watchRoom(room, '', 0)).status, 400);
+  assert.equal((await watchRoom(room, 'secret', -1)).status, 400);
+  assert.equal((await watchRoom('watch-missing', 'secret', 0)).status, 404);
+  assert.equal((await getRoom('watch-missing', 'secret')).status, 404);
+  const hint = await watchRoom(room, 'secret', 0);
+  assert.equal(hint.status, 200);
+  assert.equal(hint.body.rev, 1);
+  assert.equal(Object.hasOwn(hint.body, 'data'), false);
+  assert.doesNotMatch(JSON.stringify(hint.body), /secret|private/);
+});
+
+test('two waiting devices receive committed messages before the old polling interval', async t => {
+  const room = 'watch-live';
+  await putRoom(room, 'secret', 0, { messages: [] });
+  const first = watchRoom(room, 'secret', 1, 20000);
+  const second = watchRoom(room, 'secret', 1, 20000);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const started = performance.now();
+  const upload = putRoom(room, 'secret', 1, { messages: [{ id: 'live-a', text: 'hello', author: 'a' }] });
+  const hints = await Promise.all([first, second]);
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 2500, `watch delivery took ${elapsed}ms`);
+  for (const hint of hints) assert.equal(hint.body.rev, 2);
+  const snapshot = await getRoom(room, 'secret');
+  assert.equal(snapshot.body.rev, 2);
+  assert.equal(snapshot.body.data.messages[0].text, 'hello');
+  assert.equal((await upload).status, 200);
+  t.diagnostic(`Local commit request to both revision notifications: ${Math.round(elapsed)} ms`);
+});
+
+test('watch reconnect catches up from the last applied revision', async () => {
+  const room = 'watch-reconnect';
+  await putRoom(room, 'secret', 0, { messages: [] });
+  await putRoom(room, 'secret', 1, { messages: [{ id: 'a' }] });
+  await putRoom(room, 'secret', 2, { messages: [{ id: 'a' }, { id: 'b' }] });
+  const hint = await watchRoom(room, 'secret', 1);
+  assert.equal(hint.body.rev, 3);
+  assert.equal((await getRoom(room, 'secret')).body.data.messages.length, 2);
+});
+
+test('conflicts and changes in other rooms do not wake a watcher with a false revision', async () => {
+  const room = 'watch-isolation';
+  await putRoom(room, 'secret', 0, { messages: [] });
+  const started = performance.now();
+  const waiting = watchRoom(room, 'secret', 1);
+  await putRoom('watch-other', 'secret', 0, { messages: [{ id: 'other' }] });
+  assert.equal((await putRoom(room, 'secret', 0, { messages: [{ id: 'stale' }] })).status, 409);
+  const hint = await waiting;
+  assert.equal(hint.body.rev, 1);
+  assert.ok(performance.now() - started >= 900);
+  assert.deepEqual((await getRoom(room, 'secret')).body.data.messages, []);
+});
+
 async function applyMigration(filename) {
   const migration = readFileSync(resolve(__dirname, '..', 'migrations', filename), 'utf8')
     .replace(/^\s*--.*$/gm, '').trim();

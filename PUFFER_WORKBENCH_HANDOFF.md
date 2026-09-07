@@ -1,7 +1,7 @@
 # 胖头鱼情侣工作台 · 当前项目交接文档
 
-> 更新时间：2026-08-13  
-> 当前线上版本：`20260813-notification-accuracy-1`
+> 更新时间：2026-09-07
+> 当前线上版本：`20260907-realtime-sync-3`
 > 正式网站：<https://20051011.xyz>  
 > 同步 API：<https://sync.20051011.xyz>  
 > GitHub：<https://github.com/pangtouyu1011-lab/puffer-workbench>
@@ -122,14 +122,14 @@ Safari / PWA / 桌面浏览器
 
 1. 用户操作修改 `state`。
 2. `save()` 立即写入 localStorage，并触发界面更新。
-3. 已加入房间时，`scheduleRoomPush()` 防抖后经 Worker PUT 上传。
+3. 已加入房间时，`scheduleRoomPush()` 对普通修改防抖后经 Worker PUT 上传；待发送留言立即进入上传队列，前台在线时持续退避重试，网络和前台恢复时补发。
 4. Worker 在该房间的 SQLite Durable Object 中原子校验 `baseRev` 并提交完整快照；同一旧版本的并发写入只能成功一次。
 5. Worker 把已提交快照镜像到 KV，并把数组条目镜像到 D1。
 6. D1 条目全部可读后，Worker 才发送对应 Web Push。
 
 ### 对方接收
 
-- 页面在前台时每 3 秒拉取一次；回到前台或收到 Service Worker 消息时立即拉取。
+- 页面在前台时通过 `/changes` 长轮询等待已提交版本，再拉取快照；通道不可用时回退每 3 秒检查。回到前台或恢复网络时优先补发本地待上传内容。实现和发布验证见 `REALTIME_SYNC.md`。
 - Worker GET 只返回同一个 Durable Object 快照中的完整数据、`rev` 和 `updatedAt`，不会混入其他存储来源的更高 revision。
 - 旧 KV 房间在第一次访问时无损迁移到 Durable Object；若 KV 的 meta、data 或 D1 索引暂时版本不一致，则返回 503 等待复制完成，不以旧数据初始化权威快照。
 - 点击留言通知时，PWA 会先拉取房间，再打开留言 Bottom Sheet。
@@ -290,7 +290,7 @@ npx wrangler pages deploy <白名单目录> --project-name pufferwork
 
 ### GitHub
 
-当前正式代码在 `main`。推送前只暂存本次文件，不使用 `git add -A`。如果 `gh auth status` 失效，普通 `git push` 可能仍能使用系统 Git 凭据，但创建 PR 前应重新执行 `gh auth login -h github.com`。
+本次发布代码维护在 `codex/reaction-feedback-reliability`，Pages 正式部署目标仍为 `main`，通过白名单目录直接上传；GitHub 的 main 不随本次功能分支提交自动合并。推送前只暂存本次文件，不使用 `git add -A`。如果 `gh auth status` 失效，普通 `git push` 可能仍能使用系统 Git 凭据，但创建 PR 前应重新执行 `gh auth login -h github.com`。
 
 ## 10. 数据安全禁区
 

@@ -1,8 +1,8 @@
 // Keep one release identifier across index.html, version.json and every cache key.
 const CACHE_PREFIX = 'puffer-';
-const CACHE_NAME = 'puffer-shell-v26-reaction-feedback';
-const RUNTIME_CACHE_NAME = 'puffer-runtime-v26-reaction-feedback';
-const STATIC_ASSET_VERSION = '20260820-reaction-feedback-1';
+const CACHE_NAME = 'puffer-shell-v29-realtime-sync';
+const RUNTIME_CACHE_NAME = 'puffer-runtime-v29-realtime-sync';
+const STATIC_ASSET_VERSION = '20260907-realtime-sync-3';
 const CORE_TIMEOUT_MS = 8000;
 const WARM_CACHE_BATCH_SIZE = 6;
 

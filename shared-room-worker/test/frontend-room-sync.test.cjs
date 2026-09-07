@@ -292,7 +292,22 @@ test('Life data forms show field-level validation, limits and persistent failure
   assert.match(lifeSource, /className = 'life-field-counter'/);
   assert.match(lifeSource, /field\.setAttribute\('aria-invalid', 'true'\)/);
   assert.match(lifeSource, /catch\(error\)\{const message=lifeSubmissionError\(error\);showLifeFormFeedback/);
-  assert.ok((lifeSource.match(/notifyLifeSaved\(/g) || []).length >= 8);
+  // Messages have their own receipt-aware notice; do not count all saves as
+  // calls to the generic helper. Message submission is exercised in realtime-sync.
+  for (const label of ['旅行记录', '心情', '待办', '训练记录', '照片', '心愿']) {
+    assert.ok(lifeSource.includes(`notifyLifeSaved('${label}')`));
+  }
+  const noticeStart = lifeSource.indexOf('  function notifyLifeSaved(');
+  const noticeEnd = lifeSource.indexOf('  function lifeSubmissionError(', noticeStart);
+  assert.ok(noticeStart >= 0 && noticeEnd > noticeStart);
+  for (const joined of [false, true]) {
+    const notices = [];
+    vm.runInNewContext(lifeSource.slice(noticeStart, noticeEnd) + "\nnotifyLifeSaved('心情');", {
+      syncStatus: () => ({ joined }),
+      window: { PufferLife: { notify: message => notices.push(message) } }
+    });
+    assert.deepEqual(notices, [joined ? '心情已保存，正在同步' : '心情已保存到本机']);
+  }
   assert.match(appSource, /notify\(message, type = 'success'\) \{ toast\(String\(message \|\| ''\), type\); return true; \}/);
   assert.match(lifeCssSource, /\.life-field-error\{/);
   assert.match(lifeCssSource, /\.life-form-feedback\.is-info\{/);

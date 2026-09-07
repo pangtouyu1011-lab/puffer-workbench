@@ -691,6 +691,36 @@
     catch(error){const message=lifeSubmissionError(error);showLifeFormFeedback(button,message);window.PufferLife?.notify?.(message,'error');return false;}
     finally{lifeSubmissionLocks.delete(key);delete button.dataset.submitting;button.disabled=false;button.removeAttribute('aria-busy');button.classList.remove('is-submitting');}
   }
+  function finishMessageSubmission(button, sentText, sentFile) {
+    const panel = button.closest('.life-chat-sheet');
+    if (!panel || !mask.contains(panel)) return;
+    const text = panel.querySelector('#lifeMessageText');
+    const image = panel.querySelector('#lifeMessageImage');
+    // A slow image upload must not erase a new draft typed while it was running.
+    if (text?.value === sentText && (image?.files?.[0] || null) === (sentFile || null)) {
+      text.value = '';
+      text.dispatchEvent(new Event('input', { bubbles: true }));
+      if (image) image.value = '';
+      const preview = panel.querySelector('#lifeMessageImagePreview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        delete preview.dataset.objectUrl;
+        preview.hidden = true;
+        preview.innerHTML = '';
+      }
+      // Keep the existing draft listener alive for the next message.
+      if (activeSheetDraft?.scope === 'message') activeSheetDraft.flush();
+      window.PufferLife?.clearInputDraft?.('message');
+    }
+    refreshOpenMessageSheet(true);
+    const feedback = panel.querySelector('.life-form-feedback');
+    if (feedback) { feedback.hidden = true; feedback.textContent = ''; }
+    const status = syncStatus();
+    const notice = !status.joined ? '留言已保存在本机，加入共同空间后才能同步' :
+      navigator.onLine === false ? '留言已保存在本机，联网后会自动补发' :
+      '留言已保存，请留意消息下方的同步状态';
+    window.PufferLife?.notify?.(notice, 'info');
+  }
   async function handleLifeSubmission(button) {
     return runLifeSubmission(button,async()=>{
       if(button.matches('[data-save-travel]')){const data={place:mask.querySelector('#lifeTravelPlace')?.value,date:mask.querySelector('#lifeTravelDate')?.value,status:mask.querySelector('#lifeTravelStatus')?.value,note:mask.querySelector('#lifeTravelNote')?.value,lat:mask.querySelector('#lifeTravelLat')?.value,lng:mask.querySelector('#lifeTravelLng')?.value},file=mask.querySelector('#lifeTravelPhoto')?.files?.[0],ok=await window.PufferLife?.addTravel?.(data,file);if(ok){clearSheetDraft(button);travelSheet();notifyLifeSaved('旅行记录');}return !!ok;}
@@ -698,7 +728,7 @@
       if(button.matches('[data-save-mood]')){const me=state()?.settings?.me||'a',mood=mask.querySelector('#lifeMoodValue')?.value||mask.querySelector('[data-life-mood].active')?.dataset.lifeMood||'',ok=window.PufferLife?.setDailyStatus?.(me,mood,mask.querySelector('#lifeMoodNote')?.value||'');if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('心情');requestCompanionReaction('mood',`mood:${dayKey()}:${me}`,{mood});}return !!ok;}
       if(button.matches('[data-save-todo]')){const data={text:mask.querySelector('#lifeTodoText')?.value,date:mask.querySelector('#lifeTodoDate')?.value,priority:mask.querySelector('#lifeTodoPriority')?.value},ok=button.dataset.saveTodo?window.PufferLife?.updateTodo?.(button.dataset.saveTodo,data):window.PufferLife?.addTodo?.(data);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('待办');}return !!ok;}
       if(button.matches('[data-save-training]')){const data={content:mask.querySelector('#lifeTrainContent')?.value,date:mask.querySelector('#lifeTrainDate')?.value,muscle:mask.querySelector('#lifeTrainMuscle')?.value,duration:mask.querySelector('#lifeTrainDuration')?.value,note:mask.querySelector('#lifeTrainNote')?.value},ok=button.dataset.saveTraining?window.PufferLife?.updateTraining?.(button.dataset.saveTraining,data):window.PufferLife?.addTraining?.(data);if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('训练记录');}return !!ok;}
-      if(button.matches('[data-save-message]')){const file=mask.querySelector('#lifeMessageImage')?.files?.[0],text=mask.querySelector('#lifeMessageText')?.value||'',ok=file?await window.PufferLife?.addMessageFile?.(file,text):window.PufferLife?.addMessage?.(text);if(ok){const me=state()?.settings?.me||'a',record=live(state()?.messages).filter(item=>item.author===me).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];clearSheetDraft(button);closeSheet();notifyLifeSaved('留言');requestCompanionReaction('message',record?.id||`${dayKey()}:${me}:message`);}return !!ok;}
+      if(button.matches('[data-save-message]')){const file=mask.querySelector('#lifeMessageImage')?.files?.[0],text=mask.querySelector('#lifeMessageText')?.value||'',ok=file?await window.PufferLife?.addMessageFile?.(file,text):window.PufferLife?.addMessage?.(text);if(ok){const me=state()?.settings?.me||'a',record=live(state()?.messages).filter(item=>item.author===me).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];finishMessageSubmission(button,text,file);requestCompanionReaction('message',record?.id||`${dayKey()}:${me}:message`);}return !!ok;}
       if(button.matches('[data-save-photo]')){const file=mask.querySelector('#lifePhotoFile')?.files?.[0],ok=file&&await window.PufferLife?.addGalleryFile?.(file,mask.querySelector('#lifePhotoCaption')?.value);if(ok){const me=state()?.settings?.me||'a',record=live(state()?.gallery).filter(item=>item.author===me).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];clearSheetDraft(button);closeSheet();notifyLifeSaved('照片');requestCompanionReaction('photo',record?.id||`${dayKey()}:${me}:photo`);}return !!ok;}
       if(button.matches('[data-save-wish]')){const ok=window.PufferLife?.addWish?.({text:mask.querySelector('#lifeWishText')?.value,icon:'✨'});if(ok){clearSheetDraft(button);closeSheet();notifyLifeSaved('心愿');}return !!ok;}
       if(button.matches('[data-life-draw-fortune]')){const ok=window.PufferLife?.drawFortuneNative?.();if(ok)fortuneSheet();return !!ok;}
@@ -825,7 +855,7 @@
   function playCompanionReaction(kind, options={}) {
     const config={
       hydration:{asset:'puffer-reaction-hydration-v1.png',tone:'happy',label:'补水回应',text:'这一杯记下啦，继续照顾好自己。'},
-      message:{asset:'puffer-reaction-message-v1.png',tone:'things',label:'留言回应',text:'这句话已经替你送到啦。'},
+      message:{asset:'puffer-reaction-message-v1.png',tone:'things',label:'留言回应',text:'这句话替你记下啦。'},
       photo:{asset:'puffer-reaction-message-v1.png',tone:'things',label:'照片回应',text:'这一刻已经好好收下啦。'},
       todo:{asset:'puffer-reaction-todo-v1.png',tone:'celebrate',label:'完成回应',text:'完成一件，今天就轻一点。'},
       mood:{asset:options.mood==='开心'||options.mood==='想你'?'puffer-state-happy.webp':'puffer-state-quiet.webp',tone:options.mood==='开心'||options.mood==='想你'?'happy':'quiet',label:'心情回应',text:'我看到你现在的心情啦。'},

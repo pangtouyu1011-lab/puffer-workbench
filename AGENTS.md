@@ -22,7 +22,7 @@
 
 ## 核心架构（改代码前必读）
 1. **单一状态对象 `state`**：`{ partners:{a,b}, todos, trainings, messages, gallery, meals, fitnessPlan, settings }`。所有数据挂在它上面。
-2. **持久化**：`save()` 写 localStorage；若已加入共享房间，`scheduleRoomPush()`（防抖 1s）经 Worker API 上传。Worker 先通过 SQLite Durable Object 原子校验 `baseRev` 并提交完整快照，再镜像到 KV/D1；图片二进制放入 R2。
+2. **持久化**：`save()` 写 localStorage；若已加入共享房间，`scheduleRoomPush()` 经 Worker API 上传（普通修改防抖 1s，有待发送消息时立即排队）。Worker 先通过 SQLite Durable Object 原子校验 `baseRev` 并提交完整快照，再镜像到 KV/D1；图片二进制放入 R2。前台使用 `/changes` 长轮询接收已提交版本提示，再走原有快照读取与合并；不可用时回退每 3s 检查。详见 `REALTIME_SYNC.md`。
 3. **同步合并规则（务必遵守，否则双端数据损坏）**：
    - 删除 = **软删除** `item.deleted = true`，**不要物理移除数组元素**。
    - 按 `id` 合并：`deleted` 优先 → `updatedAt` 较新者胜 → 平局取本地。

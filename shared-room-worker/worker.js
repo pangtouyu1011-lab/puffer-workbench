@@ -514,6 +514,7 @@ export class RoomCoordinator extends DurableObject {
     super(ctx, env);
     this.ctx = ctx;
     this.sql = ctx.storage.sql;
+    this.changeWaiters = new Set();
     this.sql.exec(
       'CREATE TABLE IF NOT EXISTS room_meta (' +
       'singleton INTEGER PRIMARY KEY CHECK (singleton = 1), pass TEXT NOT NULL, revision INTEGER NOT NULL, ' +
@@ -525,6 +526,34 @@ export class RoomCoordinator extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
     try {
+      if (request.method === 'POST' && url.pathname === '/changes') {
+        const body = await request.json();
+        const meta = roomMeta(this.sql);
+        if (!meta) return json({ error: 'not_found' }, 404);
+        if (meta.pass !== String(body?.pass || '')) return json({ error: 'forbidden' }, 403);
+        const since = Number(body?.since);
+        if (!Number.isSafeInteger(since) || since < 0) return json({ error: 'bad_revision' }, 400);
+        const update = current => ({ ok: true, rev: current.revision, updatedAt: current.updatedAt });
+        if (meta.revision !== since) return json(update(meta), 200);
+        if (this.changeWaiters.size >= 16) return json({ error: 'too_many_watchers' }, 429);
+        // Registration and the revision check above have no intervening await:
+        // a commit cannot fall into a gap between checking and listening.
+        const waitMs = Math.min(20000, Math.max(1000, Number(body.waitMs) || 20000));
+        return await new Promise(resolve => {
+          let timer;
+          const finish = current => {
+            clearTimeout(timer);
+            this.changeWaiters.delete(finish);
+            request.signal.removeEventListener('abort', cancel);
+            resolve(json(update(current), 200));
+          };
+          const cancel = () => finish(roomMeta(this.sql));
+          this.changeWaiters.add(finish);
+          timer = setTimeout(cancel, waitMs);
+          request.signal.addEventListener('abort', cancel, { once: true });
+          if (request.signal.aborted) cancel();
+        });
+      }
       if (request.method === 'GET' && (url.pathname === '/meta' || url.pathname === '/snapshot')) {
         const meta = roomMeta(this.sql);
         if (!meta) return json({ error: 'not_found' }, 404);
@@ -579,6 +608,9 @@ export class RoomCoordinator extends DurableObject {
           return { ok: true, rev: revision, updatedAt, change };
         });
         if (result.error) return json({ error: result.error, rev: result.rev, updatedAt: result.updatedAt }, result.status);
+        // Notify only after the authoritative transaction commits. Receivers
+        // read that same coordinator, so KV/D1 mirror latency cannot delay chat.
+        for (const finish of [...this.changeWaiters]) finish({ revision: result.rev, updatedAt: result.updatedAt });
         return json(result, 200);
       }
       return json({ error: 'not_found' }, 404);
@@ -671,6 +703,25 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/v1/push/public-key' && request.method === 'GET') {
     const vapid = pushVapid(env);
     return vapid ? json({ ok: true, publicKey: vapid.publicKey }, 200, cors) : json({ error: 'push_unavailable' }, 503, cors);
+  }
+
+  const changesPath = url.pathname.match(/^\/api\/v1\/rooms\/([^/]+)\/changes$/);
+  if (changesPath && request.method === 'POST') {
+    const room = decodeURIComponent(changesPath[1]);
+    if (!room || room.length > 64) return json({ error: 'bad_room' }, 400, cors);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const pass = String(body?.pass || '');
+    const since = Number(body?.since);
+    if (!pass) return json({ error: 'pass_required' }, 400, cors);
+    if (!Number.isSafeInteger(since) || since < 0) return json({ error: 'bad_revision' }, 400, cors);
+    // Existing snapshot GET/PUT paths perform legacy migration. The optional
+    // watch path stays read-only and cannot create or seed an empty room.
+    const result = await callRoomCoordinator(env, room, '/changes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pass, since, waitMs: body.waitMs }), signal: request.signal
+    });
+    return json(result.body, result.status, cors);
   }
 
   // R2 保持私有：浏览器只经由 Worker 读写，桶本身不开放公网。

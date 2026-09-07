@@ -2860,7 +2860,7 @@
     return res.json();
   }
 
-  async function roomPut(url, id, pass, data, dataHash) {
+  async function roomPut(url, id, pass, data, dataHash, baseRevision = Number(state.settings.room.lastRev || 0)) {
     const payloadBytes = new TextEncoder().encode(JSON.stringify(data)).byteLength;
     if (payloadBytes > MAX_ROOM_PAYLOAD_BYTES) {
       throw new Error('同步数据超过 8MB 安全上限，请清理旧图片或历史记录后重试');
@@ -2876,7 +2876,7 @@
           'apikey': r.anon,
           'Authorization': 'Bearer ' + r.anon,
         },
-        body: JSON.stringify({ id, pass, data, dataHash, rev: r.lastRev })
+        body: JSON.stringify({ id, pass, data, dataHash, rev: baseRevision })
       }, SYNC_UPLOAD_TIMEOUT_MS);
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2894,9 +2894,9 @@
     let res = await syncFetch(v1Url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, baseRev: Number(r.lastRev || 0), author: state.settings.me || 'a', data })
+      body: JSON.stringify({ schemaVersion: 1, roomId: id, pass, baseRev: baseRevision, author: state.settings.me || 'a', data })
     }, SYNC_UPLOAD_TIMEOUT_MS);
-    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, baseRev: Number(r.lastRev || 0), data }) }, SYNC_UPLOAD_TIMEOUT_MS);
+    if (res.status === 404) res = await syncFetch(`${base}/api/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, baseRev: baseRevision, data }) }, SYNC_UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (e.error === 'forbidden') throw new Error('口令错误');
@@ -2910,24 +2910,31 @@
   function scheduleRoomPush() {
     if (!roomActive()) return;
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => { pushToRoom({ queueIfBusy: true }); }, 1000);
+    // Messages do not wait behind the debounce used for ordinary edits.
+    const delay = state.settings.room.pendingMessageIds?.length ? 0 : 1000;
+    pushTimer = setTimeout(() => { pushTimer = null; pushToRoom({ queueIfBusy: true }); }, delay);
   }
 
   // 同步失败自动重试（指数退避），同时把错误留在 pill 上供一键重试
   let syncFailed = false;
   let syncRetryCount = 0;
   let syncRetryTimer = null;
-  const MAX_SYNC_RETRY = 6;
+  const MAX_SYNC_BACKOFF_STEP = 6;
   // 版本冲突自动重试：重新拉取→合并→再写，最多 4 次（化解双端竞态）
   let conflictRetryCount = 0;
   const MAX_CONFLICT_RETRY = 4;
   function scheduleSyncRetry() {
-    if (!roomActive()) return;
-    if (syncRetryCount >= MAX_SYNC_RETRY) return;
-    syncRetryCount++;
-    const delay = Math.min(120000, 5000 * (2 ** (syncRetryCount - 1))); // 5s / 10s / 20s / 40s / 80s / 120s
     clearTimeout(syncRetryTimer);
-    syncRetryTimer = setTimeout(() => { pushToRoom(); }, delay);
+    syncRetryTimer = null;
+    if (!roomActive() || document.hidden || navigator.onLine === false) return;
+    // Cap the delay, not the number of attempts: a long outage must not leave
+    // pending messages stranded until the sender reloads the page.
+    syncRetryCount = Math.min(syncRetryCount + 1, MAX_SYNC_BACKOFF_STEP);
+    const delay = Math.min(120000, 5000 * (2 ** (syncRetryCount - 1)));
+    syncRetryTimer = setTimeout(() => {
+      syncRetryTimer = null;
+      if (roomActive() && !document.hidden && navigator.onLine !== false) return pushToRoom();
+    }, delay);
   }
 
   // 返回 true 表示成功，false 表示失败（内部已 toast）
@@ -2967,12 +2974,13 @@
         updateInteractionHistory();
         const uploadGeneration = Number(r.pendingSyncAt || 0);
         const pendingMessageIds = new Set((r.pendingMessageIds || []).map(String));
+        const baseRevision = Number(r.lastRev || 0);
         const snapshot = serializeRoom();
         const snapshotMessageIds = new Set((snapshot.messages || []).map(item => String(item.id)));
         const uploadedPendingMessageIds = [...pendingMessageIds].filter(id => snapshotMessageIds.has(id));
         const dataHash = await snapshotHash(snapshot);
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
-        const resp = await roomPut(context.url, context.id, context.pass, snapshot, dataHash);
+        const resp = await roomPut(context.url, context.id, context.pass, snapshot, dataHash, baseRevision);
         if (session !== roomSession || !sameRoomContext(context, roomContext())) return false;
         r.lastRev = resp.rev;
         r.lastSync = Date.now();
@@ -3026,6 +3034,7 @@
     try {
       const remote = await roomGet(context.url, context.id, context.pass);
       if (session !== roomSession || !sameRoomContext(context, roomContext())) return;
+      if (Number(remote.rev) < Number(r.lastRev || 0)) return;
       // 成功访问服务器就代表同步链路正常，即使数据版本没有变化也要清除旧错误状态
       r.lastSync = Date.now();
       r.lastError = r.lastPushError || '';
@@ -3069,6 +3078,9 @@
   // 接收端避免并发请求：前台每 3 秒检查一次，回到页面/重新获得焦点时立即检查
   async function pollRoom() {
     if (!roomActive() || document.hidden || pollInFlight) return pollInFlight;
+    // A pull must not advance lastRev while a snapshot based on an older
+    // revision is being prepared or acknowledged by the upload queue.
+    if (pushInFlight) return pushInFlight;
     const run = pollRoomOnce();
     pollInFlight = run;
     try { return await run; }
@@ -3090,9 +3102,12 @@
       }
       return pushInFlight;
     }
+    const session = roomSession;
     const run = (async () => {
+      if (pollInFlight) await pollInFlight;
+      if (session !== roomSession || !roomActive()) return false;
       let ok = await pushToRoomOnce(options);
-      while (pushQueued && roomActive()) {
+      while (ok && pushQueued && roomActive() && session === roomSession) {
         const next = { allowCreate: pushQueuedAllowCreate };
         pushQueued = false;
         pushQueuedAllowCreate = false;
@@ -3106,7 +3121,7 @@
     } finally {
       if (pushInFlight === run) {
         pushInFlight = null;
-        if (pushQueued && roomActive()) scheduleRoomPush();
+        if (pushQueued && roomActive() && !syncFailed) scheduleRoomPush();
       }
     }
   }
@@ -3118,15 +3133,108 @@
     else renderDashboard();
   }
 
+  // One bounded long poll per visible device. The server returns a revision
+  // hint at commit time; the existing authenticated snapshot/merge path remains
+  // the only way to apply remote data. Old servers simply use polling fallback.
+  let roomWatchGeneration = 0;
+  let roomWatchController = null;
+  let roomWatchTimer = null;
+  let roomWatchHealthyAt = 0;
+  function stopRoomWatch() {
+    roomWatchGeneration++;
+    clearTimeout(roomWatchTimer);
+    roomWatchTimer = null;
+    roomWatchController?.abort();
+    roomWatchController = null;
+    roomWatchHealthyAt = 0;
+  }
+  function startRoomWatch() {
+    stopRoomWatch();
+    if (!roomActive() || document.hidden || navigator.onLine === false || state.settings.room.backend === 'supabase') return;
+    const generation = roomWatchGeneration, session = roomSession, context = roomContext();
+    let failures = 0;
+    const current = () => generation === roomWatchGeneration && session === roomSession && roomActive() && !document.hidden && navigator.onLine !== false && sameRoomContext(context, roomContext());
+    const listen = async () => {
+      if (!current()) return;
+      const controller = new AbortController();
+      roomWatchController = controller;
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      let delay = 0;
+      try {
+        const since = Number(state.settings.room.lastRev || 0);
+        const response = await fetch(`${context.url.replace(/\/$/, '')}/api/v1/rooms/${encodeURIComponent(context.id)}/changes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+          body: JSON.stringify({ pass: context.pass, since }), signal: controller.signal
+        });
+        if (!response.ok) {
+          if ([400, 403, 404, 405].includes(response.status)) delay = 60000;
+          throw new Error('watch_unavailable');
+        }
+        const update = await response.json();
+        if (!current()) return;
+        if (!update.ok || !Number.isSafeInteger(update.rev) || update.rev < since) throw new Error('invalid_watch_revision');
+        clearTimeout(timeout);
+        failures = 0;
+        roomWatchHealthyAt = Date.now();
+        if (update.rev > Number(state.settings.room.lastRev || 0)) {
+          await pollRoom();
+          if (!current()) return;
+          // A hint is not an acknowledgement. If a pull failed (or waited for
+          // a concurrent upload), reconnect from the last APPLIED revision.
+          if (update.rev > Number(state.settings.room.lastRev || 0)) {
+            roomWatchHealthyAt = 0;
+            delay = 1000;
+          }
+        }
+      } catch (_) {
+        if (!current()) return;
+        roomWatchHealthyAt = 0;
+        failures++;
+        delay = delay || Math.min(30000, 3000 * (2 ** Math.min(failures - 1, 4)));
+      } finally {
+        clearTimeout(timeout);
+        if (roomWatchController === controller) roomWatchController = null;
+        if (current()) roomWatchTimer = setTimeout(listen, delay);
+      }
+    };
+    listen();
+  }
+
   function startRoomPolling() {
     if (roomTimer) clearInterval(roomTimer);
-    roomTimer = setInterval(pollRoom, 3000);
+    roomTimer = setInterval(() => {
+      if (!roomWatchHealthyAt || Date.now() - roomWatchHealthyAt > 30000) pollRoom();
+    }, 3000);
     pollRoom();
+    startRoomWatch();
     startPresencePolling();
+  }
+
+  function pauseRoomSync() {
+    stopRoomWatch();
+    clearTimeout(syncRetryTimer);
+    syncRetryTimer = null;
+  }
+
+  function resumeRoomSync() {
+    if (!roomActive() || document.hidden || navigator.onLine === false) return;
+    startRoomWatch();
+    const room = ensureRoomSyncMeta();
+    if (Number(room.pendingSyncAt || 0) > 0 || room.pendingMessageIds.length) {
+      clearTimeout(pushTimer);
+      pushTimer = null;
+      clearTimeout(syncRetryTimer);
+      syncRetryTimer = null;
+      // Upload already reads and merges the latest snapshot before writing.
+      // Reuse an existing upload when focus/pageshow/online arrive together.
+      return pushToRoom();
+    }
+    return pollRoom();
   }
 
   function stopRoomConnections() {
     roomSession++;
+    stopRoomWatch();
     if (roomTimer) { clearInterval(roomTimer); roomTimer = null; }
     clearTimeout(pushTimer);
     clearTimeout(syncRetryTimer);
@@ -3247,6 +3355,7 @@
     const restorePush = active && localStorage.getItem('puffer-push-enabled') === '1';
     if (active) {
       roomSession++;
+      stopRoomWatch();
       stopPresencePolling();
       localStorage.removeItem(presenceStorageKey(context));
       await cleanupRoomContext(context);
@@ -3257,6 +3366,7 @@
     save();
     if (active) {
       startPresencePolling();
+      startRoomWatch();
       if (restorePush) {
         try { await window.PufferPush?.enable?.(); } catch (_) { toast('身份已切换，请重新开启后台通知', 'info'); }
       }
@@ -3328,22 +3438,23 @@
   // 切回前台：立即拉一次最新数据并刷新角标（后台 tab 定时器会被浏览器节流，靠这个补偿）
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      pollRoom();
-      if (roomActive()) pushToRoom();
+      resumeRoomSync();
       updateMsgBadge();
       updateTitleBadge();
       renderMusicWidget();
       notifyMusicRecommendation();
-    }
+    } else pauseRoomSync();
   });
   window.addEventListener('online', () => {
+    resumeRoomSync();
     retryPendingCleanups();
-    pollRoom();
-    if (roomActive()) pushToRoom();
     refreshPresenceLocation(true);
   });
+  window.addEventListener('offline', pauseRoomSync);
+  window.addEventListener('pagehide', pauseRoomSync);
+  window.addEventListener('pageshow', resumeRoomSync);
   window.addEventListener('puffer-push-ready', retryPendingCleanups);
-  window.addEventListener('focus', () => { pollRoom(); refreshPresenceLocation(true); });
+  window.addEventListener('focus', () => { resumeRoomSync(); refreshPresenceLocation(true); });
   navigator.serviceWorker?.addEventListener('message', async event => {
     if (event.data?.type === 'puffer-room-update') await pollRoom();
     if (event.data?.type === 'puffer-open-messages' || event.data?.type === 'puffer-open-notification') {
